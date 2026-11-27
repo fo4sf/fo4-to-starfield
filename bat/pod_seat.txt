@@ -1,0 +1,4 @@
+player.setpos x 9.143
+player.setpos y -4.664
+player.setpos z -0.73
+player.setangle z 180

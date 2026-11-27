@@ -527,7 +527,12 @@ TEXTURES = "Textures"
 def has_textures(a):
     """True with --textures-archive when the stage has a Data\\Textures tree: it goes into its own "<plugin> - Textures.ba2" (DX10), not the
     General Main archive (the build pieces kit's pictures; every other kit keeps its textures in the Main archive)."""
-    return bool(getattr(a, "textures_archive", False)) and os.path.isdir(os.path.join(a.exp_dir, "Data", TEXTURES))
+    if not getattr(a, "textures_archive", False):
+        return False
+    data_dir = os.path.join(a.exp_dir, "Data")
+    if not os.path.isdir(data_dir):
+        return False
+    return any(d.casefold() == TEXTURES.casefold() and os.path.isdir(os.path.join(data_dir, d)) for d in os.listdir(data_dir))
 
 
 def build_ba2(a, root, out, textures=None):
@@ -677,10 +682,14 @@ def _install(a, packing_dir=None):
         sys.exit("experiment source inputs changed during preparation; nothing installed")
     if packed:
         try:
-            tex_prefix = "Data/" + TEXTURES + "/"
-            verify_archive(built, {k: v for k, v in inputs.items() if not (tex_ba2 and k.startswith(tex_prefix))})
+            tex_prefix = ("Data/" + TEXTURES + "/").casefold()
+            verify_archive(built, {k: v for k, v in inputs.items() if not (tex_ba2 and k.casefold().startswith(tex_prefix))})
             if tex_ba2:
-                verify_texture_archive(built_tex, {k: v for k, v in inputs.items() if k.startswith(tex_prefix)})
+                verify_texture_archive(
+                    built_tex,
+                    {k: v for k, v in inputs.items() if k.casefold().startswith(tex_prefix)},
+                    source_root=a.exp_dir,
+                )
         except (OSError, ValueError) as error:
             sys.exit(f"experiment archive validation failed; nothing installed: {error}")
     p = plugins_txt()

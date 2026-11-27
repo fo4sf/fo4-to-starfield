@@ -41,6 +41,7 @@ EXPECTED_TRACK1_PLAYER_PLUGINS = (
     "FO4SFCoreValues.esm",
     "FO4SFVaultGearDoor.esm",
     "FO4SFExitLift.esm",
+    "FO4SFVaultPod.esm",
     "FO4SFMission.esm",
     "FO4SFNewGame.esm",
     "FO4SFWorkshop.esm",
@@ -65,7 +66,7 @@ TRACK2_EXPERIMENTAL_ESMS = (
 
 class SafeDefaultsTests(unittest.TestCase):
     def test_w1_bundle_lists_and_cli_defaults_keep_routeloot_bridge_and_track2_off(self) -> None:
-        self.assertEqual(len(EXPECTED_TRACK1_PLAYER_PLUGINS), 13)
+        self.assertEqual(len(EXPECTED_TRACK1_PLAYER_PLUGINS), 14)
         self.assertEqual(mcb.PLAYER_BUNDLE_PLUGINS, EXPECTED_TRACK1_PLAYER_PLUGINS)
         self.assertNotIn("FO4SFRouteLoot.esm", mcb.PLAYER_BUNDLE_PLUGINS)
         self.assertNotIn("FO4SFRouteLoot.esm", mcb.CORE_BUNDLE_PLUGINS)
@@ -75,7 +76,7 @@ class SafeDefaultsTests(unittest.TestCase):
         for t2_esm in TRACK2_EXPERIMENTAL_ESMS:
             self.assertNotIn(t2_esm, mcb.PLAYER_BUNDLE_PLUGINS, f"{t2_esm} leaked into Track-1 PLAYER_BUNDLE_PLUGINS")
             self.assertIn(t2_esm, mcb.CORE_BUNDLE_PLUGINS)
-        self.assertEqual(len(mcb.CORE_BUNDLE_PLUGINS), 22)
+        self.assertEqual(len(mcb.CORE_BUNDLE_PLUGINS), 23)
 
         sig_fold = inspect.signature(mcb.fold_bundle)
         self.assertIs(sig_fold.parameters["with_route_loot"].default, False)
@@ -118,7 +119,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 0,
             )
             pplan = json.loads((out_player / "bundle_plan.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(pplan["plugins"]), 11)  # 13 minus 2 optional Pip-Boy ESMs when --with-pipboy omitted
+            self.assertEqual(len(pplan["plugins"]), 12)  # 14 minus 2 optional Pip-Boy ESMs when --with-pipboy omitted
             self.assertFalse(pplan["with_route_loot"])
             self.assertFalse(pplan["with_experimental_core"])
 
@@ -168,7 +169,8 @@ class SafeDefaultsTests(unittest.TestCase):
 
             def _spy_run_py(py_exe: str, script_rel: str, args):
                 arg_list = list(args)
-                out_dir = Path(arg_list[arg_list.index("--out") + 1])
+                out_flag = "--out" if "--out" in arg_list else "--staging"
+                out_dir = Path(arg_list[arg_list.index(out_flag) + 1])
                 out_dir.mkdir(parents=True, exist_ok=True)
                 if script_rel == "scripts/newgame/make_newgame.py":
                     ng_invocations.append((out_dir.name, arg_list))
@@ -202,6 +204,7 @@ class SafeDefaultsTests(unittest.TestCase):
                     commonlibsf=None,
                     msvc_env=None,
                     no_walk_harness=True,
+                    allow_starfield_standins=True,
                 )
                 # 1. Default --profile player: NO --fade-hold, NO Track 2 slice scripts, NO route loot!
                 mcb.stage_from_checkout(SimpleNamespace(**base_kwargs, profile="player"))
@@ -234,16 +237,16 @@ class SafeDefaultsTests(unittest.TestCase):
 
     def test_w1_pipboy_stage_ini_and_shipped_ini_safe_defaults(self) -> None:
         shipped_ini = (ROOT / "sfse" / "FO4SFPipboyMenu" / "FO4SFPipboyMenu.ini").read_text(encoding="utf-8")
-        for req in ("MapBlockStarMap=0", "Arm=0", "BootOnFirstOpen=0"):
+        for req in ("MapBlockStarMap=0", "Arm=1", "BootOnFirstOpen=0"):
             self.assertIn(f"\n{req}\n", "\n" + shipped_ini, req)
 
         fmt_default = mpsi.format_stage_ini(["HideMenu"], boot_movie="pipboybootsequence")
-        for req in ("MapBlockStarMap=0", "Arm=0", "BootOnFirstOpen=0"):
+        for req in ("MapBlockStarMap=0", "Arm=1", "BootOnFirstOpen=0"):
             self.assertIn(f"\n{req}\n", "\n" + fmt_default, req)
 
         parsed_default = mpsi.build_parser().parse_args(["--stage", "dummy"])
         self.assertEqual(parsed_default.map_block_starmap, 0)
-        self.assertEqual(parsed_default.arm, 0)
+        self.assertEqual(parsed_default.arm, 1)
         self.assertEqual(parsed_default.boot_on_first_open, 0)
 
         parsed_opt = mpsi.build_parser().parse_args([
@@ -272,13 +275,18 @@ class SafeDefaultsTests(unittest.TestCase):
         wrapped = psc + f"\nFunction TimerEvent({ev_timer[1]})\n{ev_timer[2]}EndFunction\n"
         funcs = (
             "BackdropName", "UsePreworldRoom", "EnterVault", "StandsInVault", "ResetInventory", "FillO2",
-            "FadeIn", "DisableHandScanner", "NoteLooksStage20", "IsPreworldLooksHandled",
-            "FindStoryStartPlaceRow", "ApplyStage", "AdvanceTo", "RunModeChoiceChain", "TimerEvent",
+            "FadeIn", "DisableHandScanner", "PodEntryX", "PodEntryY", "PodSafeX", "PodSafeY",
+            "EnsureFadedInForChoice", "PrepareBeforeCreator",
+            "PodAnimReady", "ShouldSkipMenuDelay", "NoteLooksDone",
+            "NoteLooksStage20", "CompleteLooksStage20AfterPodExit", "StartPodOpen", "RunPodExitHook",
+            "IsPreworldLooksHandled", "FindStoryStartPlaceRow", "ApplyStage", "AdvanceTo",
+            "RunModeChoiceChain", "TimerEvent",
         )
         vars_csv = (
             "faded, entered, startRoomMoves, startRoomEntered, startRoomUiPrepared, "
             "loadingMenuOpen, loadingMenuClosedSeen, loadingHookRegistered, startUiReady, h00SkipLoading, "
             "modeChoiceRan, modeBoxWaiting, modeBoxWaitSeconds, preworldLooksDone, preworldLooksHow, preworldLooksBy, "
+            "podLooksDone, podLooksHow, podLooksBy, podExitDone, podExitStarted, podFellBack, "
             "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, vaultMoves, centered, centerTries, "
             "ticks, startedAt, scannerLayer, podChecked, rideActive, surfaceMovedAt, returnSurfacePending, asked"
         )
@@ -299,6 +307,7 @@ class SafeDefaultsTests(unittest.TestCase):
             GetPositionX=lambda: player.pos[0],
             GetPositionY=lambda: player.pos[1],
             GetPositionZ=lambda: player.pos[2],
+            SetPosition=lambda x, y, z: setattr(player, "pos", (x, y, z)),
             SetAngle=lambda *a: None,
             MoveTo=lambda *a: None,
             GetParentCell=lambda: player.cell,
@@ -315,6 +324,10 @@ class SafeDefaultsTests(unittest.TestCase):
         )
         ns = dict(
             FadeHold=False, StartChoiceBackdrop=1, StartLoadTimeout=15.0, LooksWait=120.0, RaceMenuMode=2,
+            PodExitMode="safe_spawn", PodAnimPlugin="FO4SFVaultPod.esm", PodCreatorInPod=False,
+            PodOriginX=0.0, PodOriginY=0.0, PodOriginZ=0.0,
+            PodEntryStep=-2.5, PodSafeStep=-3.2, PodSafeHeading=270.0,
+            podLooksDone=False, podLooksHow="", podLooksBy="Trigger", podExitDone=False, podExitStarted=False, podFellBack=False,
             ClearInventory=True, VaultSuitId=0, AnchorTemporary=False, O2Capacity=None, O2CapacityAmount=0.0,
             faded=False, entered=True, startRoomMoves=0, startRoomEntered=False, startRoomUiPrepared=False,
             loadingMenuOpen=False, loadingMenuClosedSeen=False, loadingHookRegistered=False, startUiReady=False, h00SkipLoading=False,
@@ -362,6 +375,7 @@ class SafeDefaultsTests(unittest.TestCase):
             CompleteQuest=lambda: None,
             StartLandingQuests=lambda: None,
             EnsureLoadHookRegistered=lambda p: None,
+            TriggerVaultPodRecoveryAutosave=lambda *a: None,
             HoldOffPass=lambda p: None,
             Trace=lambda m: logs.append(m),
         )
@@ -389,6 +403,10 @@ class SafeDefaultsTests(unittest.TestCase):
         fake_ng_quest = SimpleNamespace(
             IsPreworldLooksHandled=ns["IsPreworldLooksHandled"],
             NoteLooksStage20=ns["NoteLooksStage20"],
+            NoteLooksDone=ns["NoteLooksDone"],
+            ShouldSkipMenuDelay=ns["ShouldSkipMenuDelay"],
+            EnsureFadedInForChoice=ns["EnsureFadedInForChoice"],
+            PrepareBeforeCreator=ns["PrepareBeforeCreator"],
         )
         lns = dict(
             self=fake_ng_quest,
@@ -507,8 +525,9 @@ class SafeDefaultsTests(unittest.TestCase):
             "ActivateGearDoorConsole",
         )
         vars_csv = (
-            "itemWatchRegistered, pipboyRegistered, cogDoorRegistered, cogDoorWatchedRef, "
-            "consoleRegistered, consoleWatchedRef, pistolPickedLogged"
+            "itemWatchRegistered, pipboyRegistered, pipboyEquipWatchRegistered, cogDoorRegistered, cogDoorWatchedRef, "
+            "consoleRegistered, consoleWatchedRef, portConsoleRegistered, portConsoleWatchedRef, "
+            "consoleOpening, pistolPickedLogged"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), "FO4SF_NewGameQuest.psc", "exec")
 
@@ -536,6 +555,7 @@ class SafeDefaultsTests(unittest.TestCase):
             pipboy_ref = _make_ref("FO4SF_PipboyCorpsePickupRef", 0x0A00080F, (-55.0488, -0.9224, 0.7759))
             own_console = _make_ref("FO4SF_GearDoorConsoleRef", 0x0A000819, (-54.3644, -1.8147, 1.7541))
             port_console = _make_ref("FO4Port_GearDoorConsoleRef", 0x02001319, (-54.3644, -1.8748, 1.6940))
+            lift_ref = _make_ref("FO4Port_ExitLiftRef", 0x0200132F, (-30.6914, -1.5529, 4.9488))
             cog_door = SimpleNamespace(
                 BlockActivation=lambda *a: None,
                 GetOpenState=lambda: door_state[0],
@@ -550,6 +570,8 @@ class SafeDefaultsTests(unittest.TestCase):
                         return cog_door
                     if fid == 0x1319:
                         return port_console if port_ready[0] else None
+                    if fid == 0x132F:
+                        return lift_ref
                 return None
 
             sender = port_console if trigger_via_port_console else own_console
@@ -563,6 +585,8 @@ class SafeDefaultsTests(unittest.TestCase):
             ns = dict(
                 itemWatchRegistered=True,
                 pipboyRegistered=False,
+                pipboyEquipWatchRegistered=False,
+                PipboyWristArmor=None,
                 cogDoorRegistered=False,
                 cogDoorWatchedRef=None,
                 consoleRegistered=False,
@@ -577,6 +601,7 @@ class SafeDefaultsTests(unittest.TestCase):
                 GearDoorConsoleRef=own_console,
                 CogDoorId=0x126D,
                 ConsoleRefId=0x1319,
+                LiftId=0x132F,
                 VaultPlugin="FO4Port.esm",
                 TestModeGlobal=None,
                 PipboyAcquiredGlobal=SimpleNamespace(GetValue=lambda: 1.0),

@@ -49,7 +49,7 @@ class ScriptTests(unittest.TestCase):
         ran = [int(s) for s in re.findall(r"StageList\[\d+\] = (\d+)", PSC)]
         m = re.search(r"Stages = \{ ([\d, ]+) \}", TOOL_SRC)
         self.assertEqual(ran, [int(x) for x in m.group(1).split(",")])
-        self.assertEqual(ran, [10, 20, 30, 40, 50, 60, 70])
+        self.assertEqual(ran, [10, 20, 30, 40, 50, 60, 70, 80])
         self.assertIn(f"StageList = new int[{len(ran)}]", PSC)
         self.assertIn(f"DoneList = new bool[{len(ran)}]", PSC)
         for stage in ran:                                                                   # every stage is handled by Step
@@ -61,6 +61,7 @@ class ScriptTests(unittest.TestCase):
         self.assertRegex(PSC, r"(?m)^int LandId = 0x0008F2$")
         self.assertRegex(PSC, r"(?m)^int TestId = 0x000900$")
         self.assertRegex(PSC, r"(?m)^int Test2Id = 0x000901$")
+        self.assertRegex(PSC, r"(?m)^int Test3Id = 0x000902$")
         self.assertIn('string CorePlugin = "FO4TerrainCore.esm"', PSC)
         self.assertIn('string MarkPlugin = "FO4SFMapMarkers.esm"', PSC)
         self.assertIn("float MergeX = -1200.0", PSC)
@@ -70,7 +71,7 @@ class ScriptTests(unittest.TestCase):
         code = code_lines(PSC)
         self.assertIsNone(re.search(r"\bAuto(Readonly)?\b|\bProperty\b", code, re.I))
         self.assertNotIn(" Property ", code)
-        self.assertEqual(PSC.count("Game.GetFormFromFile("), 4)
+        self.assertEqual(PSC.count("Game.GetFormFromFile("), 5)
         self.assertIsNone(re.search(r"(?m)^ObjectReference \w+ *(=|$)", code))             # no script-level reference variable: it would make a temporary reference persistent
 
     def test_names_do_not_collide_case_blind(self):
@@ -93,9 +94,11 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("v.SetMarkerDiscovered()", step.split("stage == 30")[1].split("stage == 60")[0])
         self.assertIn("l.SetMarkerDiscovered()", step.split("stage == 60")[1].split("stage == 70")[0])
         self.assertIn("RefNamed(\"LAND\")", step.split("stage == 60")[1].split("stage == 70")[0])
-        self.assertIn("t.AddToMap(false)", step.split("stage == 70")[1])
-        self.assertIn('RefNamed("TEST2")', step.split("stage == 70")[1])                    # not the moved marker: nothing undoes Discovered
-        self.assertEqual(code_lines(PSC).count(".AddToMap("), 1)
+        self.assertIn("t.AddToMap(false)", step.split("stage == 70")[1].split("stage == 80")[0])
+        self.assertIn('RefNamed("TEST2")', step.split("stage == 70")[1].split("stage == 80")[0])                    # not the moved marker: nothing undoes Discovered
+        self.assertIn("t3.AddToMap(true)", step.split("stage == 80")[1])
+        self.assertIn('RefNamed("TEST3")', step.split("stage == 80")[1])
+        self.assertEqual(code_lines(PSC).count(".AddToMap("), 2)
         move = PSC.split("Function MoveTest(int stage)")[1].split("EndFunction")[0]
         self.assertIn("t.MoveTo(a, 0.0, 0.0, 0.0, True, False)", move)                      # the exit's own call: Surface() in FO4SF_NewGameQuest.psc
         self.assertIn('RefNamed("V111")', move)
@@ -113,7 +116,7 @@ class ScriptTests(unittest.TestCase):
             self.assertIn(need, fast)
         self.assertIn("Debug.Notification", PSC)                                          # every finding is also on screen
         later = PSC.split("Function Later()")[1].split("EndFunction")[0]
-        for stage in (20, 30, 60, 70):                                                    # every stage that changes something is re-read after LaterS
+        for stage in (20, 30, 60, 70, 80):                                                # every stage that changes something is re-read after LaterS
             self.assertIn(f"stage == {stage}", later)
         self.assertEqual(PSC.count("StartTimer(LaterS, TIMER_LATER)"), 2)
 

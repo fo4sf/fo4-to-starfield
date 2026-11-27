@@ -540,8 +540,8 @@ static class NextStoryMissionsA7
              plug.Globals.Any(g => g.FormKey == new FormKey(key, Mq106ArmedGlobId)),
             "FO4SF_MQ105 GLOBs (0x000AB6 / 0x000AB7 / 0x000AB8) missing");
 
-        var a7Refs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
-            .Where(r => IsA7ActorRefId(r.FormKey.ID)).ToList() ?? [];
+        var a7Refs = Mission.PersistentNpcRefs(plug)
+            .Where(r => IsA7ActorRefId(r.FormKey.ID)).ToList();
         need(a7Refs.Count == 5 && a7Refs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),
             "A7 persistent ACHRs must all carry InitiallyDisabled (0x800, R3)");
 

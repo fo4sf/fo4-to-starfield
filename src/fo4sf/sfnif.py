@@ -273,3 +273,48 @@ def build_door_nif(node_name: bytes, static_shapes: List[StaticShape], moving_sh
         finish(i)
     f.footer = struct.pack("<II", 1, 0)
     return f
+
+
+INVISIBLE_MATERIAL_PATH = r"Materials\Layered\ShaderModels\Invisible.mat"
+
+
+def build_codsworth_talk_proxy_nif(decorator_nif_bytes: bytes) -> bytes:
+    """Turn a Starfield SFBGS006_SBShipDecoratorMarker NIF into an invisible collision/activation volume.
+
+    Keeps the exact Havok bhkNPCollisionObject + bhkPhysicsSystem sphere activation hull intact while swapping
+    any EditorMarker .mat reference + MaterialID extra data to Invisible.mat (0x242ebc61), matching vanilla
+    invisible activator NIFs such as player_ladderactivate.nif.
+    """
+    n = nifmod.parse(decorator_nif_bytes)
+    inv_bytes = INVISIBLE_MATERIAL_PATH.encode("latin-1")
+    inv_id = material_id(INVISIBLE_MATERIAL_PATH)
+
+    replaced_mat = False
+    for idx, s in enumerate(n.strings):
+        if s.lower().endswith(b".mat"):
+            n.strings[idx] = inv_bytes
+            replaced_mat = True
+    if not replaced_mat:
+        raise nifmod.NifError("decorator NIF has no .mat string to replace with Invisible.mat")
+    n.max_string_len = max((len(s) for s in n.strings), default=0)
+
+    mat_id_idx = n.strings.index(b"MaterialID") if b"MaterialID" in n.strings else -1
+    updated_mat_id = False
+    has_physics = False
+    has_shader = False
+    for i in range(len(n.blocks)):
+        bt = n.type_of(i)
+        if bt == "bhkPhysicsSystem":
+            has_physics = True
+        elif bt == "BSLightingShaderProperty":
+            has_shader = True
+        elif bt == "NiIntegerExtraData" and len(n.blocks[i]) >= 8:
+            name_idx = struct.unpack_from("<i", n.blocks[i], 0)[0]
+            if mat_id_idx >= 0 and name_idx == mat_id_idx:
+                n.blocks[i] = n.blocks[i][:4] + struct.pack("<I", inv_id) + n.blocks[i][8:]
+                updated_mat_id = True
+    if not (has_physics and has_shader and updated_mat_id):
+        raise nifmod.NifError(
+            f"decorator NIF missing required activator blocks (physics={has_physics}, shader={has_shader}, mat_id={updated_mat_id})"
+        )
+    return nifmod.serialize(n)

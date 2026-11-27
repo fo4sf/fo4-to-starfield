@@ -1,7 +1,7 @@
 Scriptname FO4SF_NewGameLooks extends Quest
 {Optional second script on FO4SF_NewGame (docs/newgame/vault111-start.md): once the player stands in Vault 111 (stage
- 10) it asks "Create character" or "Quick start" (StartMessage, NG-6 / NG-C9). Create opens Starfield's character
- creation, in place of Fallout 4's bathroom mirror, and waits for the creator ("ChargenMenu") to close; quick start
+ 10) it asks "Create character" or "Use preset look" (StartMessage, NG-6 / NG-C9). Create opens Starfield's character
+ creation, in place of Fallout 4's bathroom mirror, and waits for the creator ("ChargenMenu") to close; Use preset look
  keeps the preset the player already has and skips the creator. Either way it sets stage 20 and traces "stage 20" to
  the quest's log as the quest's AdvanceTo would; the quest sets stage 20 itself after LooksWait if this script never
  does (the fallback), and the log says which ended the wait.
@@ -12,7 +12,7 @@ Scriptname FO4SF_NewGameLooks extends Quest
  Fallout 4's signature (string asMenuName, bool abOpening); the compile on the PC is its check.}
 
 Message Property StartMessage Auto Const Mandatory
-{The opening choice (FO4SFNewGame.esm 0x802): button 0 is the quick start, button 1 creates the character.}
+{The opening choice (FO4SFNewGame.esm 0x802): button 0 uses the preset look, button 1 creates the character.}
 
 int Property RaceMenuMode = 2 Auto Const
 {The uiMode passed to Game.ShowRaceMenu (the writer's --race-menu-mode). 0 is the full creator, with Starfield's
@@ -51,19 +51,27 @@ Event OnTimer(int aiTimerID)
             return
         endif
         shown = true
-        Utility.Wait(MenuDelay)
+        if ngQuest == None || !ngQuest.ShouldSkipMenuDelay()
+            Utility.Wait(MenuDelay)
+        endif
         if GetStage() >= 20
             return
         endif
         if ngQuest != None && ngQuest.IsPreworldLooksHandled()
             return
         endif
+        if ngQuest != None
+            ngQuest.EnsureFadedInForChoice()
+        endif
         int button = StartMessage.Show()
         Trace("start choice button=" + button)
         if button == 0
-            Trace("quick start: preset kept, creator skipped")
-            Done("quick start")
+            Trace("use preset look: preset kept, creator skipped")
+            Done("use preset look")
             return
+        endif
+        if ngQuest != None
+            ngQuest.PrepareBeforeCreator()
         endif
         ; registered before the menu opens so its close is not missed; the event sets stage 20 (Done). The quest's
         ; LooksWait timer is the fallback when the event never comes
@@ -87,10 +95,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 Function Done(string how)
-{Stage 20 once, with what ended the wait (the quest logs "looks done: LooksWait fallback after ..." when its LooksWait
- does, and this then logs nothing: the first ending is the one the log summary reads). Then the "stage 20" line the
- quest's AdvanceTo would have traced: the stage is set here, not through AdvanceTo, and the log summary's "stages"
- reads only those lines (21 Oct review on #393).}
+{Stage 20 once, with what ended the wait (handing off to FO4SF_NewGameQuest.NoteLooksDone so cryopod_anim finishes
+ opening and walk-out before stage 20).}
     if GetStage() >= 20
         return
     endif
@@ -98,12 +104,13 @@ Function Done(string how)
     if how == "creator closed"
         by = "scene"
     endif
-    FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
-    if ngQuest != None
-        ngQuest.NoteLooksStage20()
-    endif
     TracePosition("done: " + how)
     Trace("looks done: " + how)
+    FO4SF_NewGameQuest ngQuest = (self as Quest) as FO4SF_NewGameQuest
+    if ngQuest != None
+        ngQuest.NoteLooksDone(how)
+        return
+    endif
     SetStage(20)
     Trace("stage 20 by=" + by)
 EndFunction

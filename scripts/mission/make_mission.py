@@ -55,10 +55,12 @@ for _p in (SRC_DIR, ACTORS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from convert_codsworth import patch_codsworth_steel_mat  # noqa: E402
+from fo4sf.core.stage_provenance import build_provenance, canonicalize_cli_args  # noqa: E402
 
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
 SCRIPT = "FO4SF_Min00Quest"
+TOAST_UTIL_SCRIPT = "FO4SF_QuestToastUtil"
 COM_SCRIPT = "FO4SF_COMPreston"
 CODSWORTH_SCRIPT = "FO4SF_Codsworth01Quest"
 SANCTUARY_SCRIPT = "FO4SF_Sanctuary01Quest"
@@ -71,13 +73,36 @@ MQ203_SCRIPT = "FO4SF_MQ203Quest"
 MQ204_SCRIPT = "FO4SF_MQ204Quest"
 MQ206_SCRIPT = "FO4SF_MQ206Quest"
 ALL_SCRIPTS = (
-    SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT,
+    TOAST_UTIL_SCRIPT, SCRIPT, COM_SCRIPT, CODSWORTH_SCRIPT, SANCTUARY_SCRIPT,
     MINRECRUIT00_SCRIPT, MQ103_SCRIPT, MQ104_SCRIPT, MQ105_SCRIPT,
     MQ106_SCRIPT, MQ203_SCRIPT, MQ204_SCRIPT, MQ206_SCRIPT,
+)
+DOORS_DIR = os.path.join(REPO, "scripts", "doors")
+LOAD_DOORS_JSON = os.path.join(REPO, "src", "fo4sf", "core", "load_doors.json")
+WORKSHOP_DIR = os.path.join(REPO, "scripts", "workshop")
+VAULT_ROACHES_SCRIPT = "FO4SF_Vault111RoachesQuest"
+PICKUP_SCRIPT = "FO4SF_S5S6ItemPickup"
+LOAD_DOOR_SCRIPT = "FO4SF_LoadDoorQuest"
+CONFIRMED_DOOR_SCRIPT = "FO4SF_ConfirmedLoadDoor"
+R12_EXTRA_SCRIPTS = (
+    (VAULT_ROACHES_SCRIPT, HERE),
+    (PICKUP_SCRIPT, HERE),
+    (LOAD_DOOR_SCRIPT, DOORS_DIR),
+    (CONFIRMED_DOOR_SCRIPT, DOORS_DIR),
 )
 
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
+# robot-anim (--codsworth-handy): the Mr. Handy bundle of scripts/probes/stage_ra2_handy.py. Its plugin is the race
+# template for dotnet/Mission; its Data holds the rig, clips, manifests, skeleton and mesh.
+HANDY_TEMPLATE = "FO4SF_RA2Handy.esm"
+HANDY_MESH = "FO4SF\\Actors\\Handy\\handy.nif"
+HANDY_RACE_EDID = "FO4SF_HandyRace"
+CODSWORTH_RACE_EDID = "FO4SF_CodsworthRace"
+CODSWORTH_TALK_PROXY_MESH = "meshes/fo4sf/actors/handy/codsworth_talk_proxy.nif"
+DECORATOR_MARKER_NIF = "meshes/effects/sfbgs006/sfbgs006_sbshipdecoratormarker.nif"
+HANDY_DIRS = ("geometries/", "meshes/actors/fo4sf/handy/", "meshes/fo4sf/actors/handy/")
+HANDY_MANIFEST_DIRS = ("AnimationFileData", "AnimationOffsets", "AnimationStanceData", "DynamicIdleData")
 # Codsworth carries his own VTYP FO4SF_CodsworthVoice (0x819, AllowDefaultDialog) so Starfield resolves his .wem files here:
 VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/fo4sf_codsworthvoice"
 # Preston uses Starfield.esm GenericMaleEvenToned (AllowDefaultDialog), resolved under FO4SFMission.esm's voice folder:
@@ -119,6 +144,116 @@ PRESTON_PLACEHOLDER_NOTE = (
     "HumanRace (0x00347D, UC_NA_PapaKatz 0x01169C template) + GenericMaleEvenToned + "
     "Outfit_FreestarRanger_Vest_with_Hat (0x208E39) + Orion laser rifle (0x2773C8)"
 )
+
+
+def build_look_descriptions(a, codsworth_pos=None):
+    """Build real Preston, raider, and Codsworth look descriptions from the passed look inputs."""
+    actor_looks = getattr(a, "actor_looks_assets", None)
+    codsworth_assets = getattr(a, "codsworth_assets", None)
+    codsworth_handy = getattr(a, "codsworth_handy", None)
+    race_framing = bool(getattr(a, "codsworth_race_framing", False))
+
+    if actor_looks:
+        looks_abs = os.path.abspath(actor_looks)
+        preston_desc = (
+            f"HumanRace (0x00347D, C5 FO4 outfit+hat from {looks_abs}: "
+            "FO4_Outfit_PrestonMinuteman prestongarveyoutfit_m.nif + prestongarveyhat_m.nif) + "
+            "GenericMaleEvenToned + Orion laser rifle (0x2773C8)"
+        )
+        raider_desc = (
+            f"C5 FO4 outfit from {looks_abs} "
+            "(FO4_ConcordRaider 0x000986 / FO4_Outfit_ConcordRaider concord_raider_m.nif)"
+        )
+    else:
+        preston_desc = PRESTON_PLACEHOLDER_NOTE
+        raider_desc = "Starfield stand-in (FO4_LvlRaider)"
+
+    if not getattr(a, "codsworth", True):
+        codsworth_desc = "left out (--no-codsworth)"
+    else:
+        if codsworth_handy:
+            model_note = f"FO4 Mr. Handy model/skeleton from {os.path.abspath(codsworth_handy)} ({HANDY_MESH})"
+            if codsworth_assets:
+                model_note += f" + materials/textures from {os.path.abspath(codsworth_assets)}"
+            framing_note = "Mr. Handy race skeleton/animations (--codsworth-handy)"
+        else:
+            model_note = (
+                f"FO4 model from {os.path.abspath(codsworth_assets)} ({CODSWORTH_MESH})"
+                if codsworth_assets
+                else "Starfield robot stand-in (no --codsworth-assets)"
+            )
+            framing_note = (
+                "standing camera framing enabled (--codsworth-race-framing)"
+                if race_framing
+                else "default race camera framing"
+            )
+        pos_str = f" at {codsworth_pos} m" if codsworth_pos is not None else ""
+        codsworth_desc = (
+            "NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + "
+            f"FO4SF_CodsworthVoice AllowDefaultDialog; {model_note}; {framing_note}){pos_str}"
+        )
+    return preston_desc, raider_desc, codsworth_desc
+
+
+def mission_cli_args(a, final_out):
+    """Canonicalized CLI args matching `make_core_bundle.stage_from_checkout`."""
+    tokens = [
+        "stage",
+        "--out", os.path.abspath(final_out),
+        "--fo4", os.path.abspath(a.fo4),
+        "--starfield", os.path.abspath(a.starfield),
+        "--core", os.path.abspath(a.core),
+        "--raider", os.path.abspath(a.raider),
+        "--compiler", os.path.abspath(a.compiler),
+        "--content-resources", os.path.abspath(a.content_resources),
+    ]
+    if getattr(a, "fo4_interface", None):
+        tokens.extend(["--fo4-interface", os.path.abspath(a.fo4_interface)])
+    if getattr(a, "fo4_voices", None):
+        tokens.extend(["--fo4-voices", os.path.abspath(a.fo4_voices)])
+    if getattr(a, "xwmaencode", None):
+        tokens.extend(["--xwmaencode", os.path.abspath(a.xwmaencode)])
+    if getattr(a, "wwise_console", None):
+        tokens.extend(["--wwise-console", os.path.abspath(a.wwise_console)])
+    if not getattr(a, "alias", True):
+        tokens.append("--no-alias")
+    if not getattr(a, "codsworth", True):
+        tokens.append("--no-codsworth")
+    if getattr(a, "codsworth_voice", None):
+        tokens.extend(["--codsworth-voice", os.path.abspath(a.codsworth_voice)])
+    if getattr(a, "codsworth_assets", None):
+        tokens.extend(["--codsworth-assets", os.path.abspath(a.codsworth_assets)])
+    if getattr(a, "codsworth_handy", None):
+        tokens.extend(["--codsworth-handy", os.path.abspath(a.codsworth_handy)])
+    if getattr(a, "actor_looks_assets", None):
+        tokens.extend(["--actor-looks-assets", os.path.abspath(a.actor_looks_assets)])
+    if getattr(a, "codsworth_race_framing", False):
+        tokens.append("--codsworth-race-framing")
+    if getattr(a, "load_doors", None):
+        tokens.extend(["--load-doors", os.path.abspath(a.load_doors)])
+    if getattr(a, "game", None):
+        tokens.extend(["--game", str(a.game)])
+    return canonicalize_cli_args(tokens)
+
+
+def load_doors_config(json_path=None, game_id=None):
+    """Load and validate a per-game entry from src/fo4sf/core/load_doors.json."""
+    path = os.path.abspath(json_path) if json_path else LOAD_DOORS_JSON
+    if not os.path.isfile(path):
+        sys.exit(f"missing load_doors.json: {path}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if data.get("schema_version") != 1:
+        sys.exit(f"unsupported load_doors.json schema_version: {data.get('schema_version')!r}")
+    target_game = (game_id or data.get("default_game") or "fo4").strip().lower()
+    games = data.get("games")
+    if not isinstance(games, dict) or target_game not in games:
+        sys.exit(f"load_doors.json has no games.{target_game}: {path}")
+    entry = games[target_game]
+    if entry.get("available") is False:
+        reason = entry.get("unavailable_reason") or "unavailable"
+        sys.exit(f"game '{target_game}' is unavailable in load_doors.json: {reason}")
+    return target_game, entry
 
 STAGES = (10, 20, 30, 35, 40, 200)
 PROPERTIES = ("Preston", "Raiders", "Credits")
@@ -213,10 +348,11 @@ def extract_sources(zip_path, work):
     return src
 
 
-def compile_script(compiler, src_dir, out_dir, script):
+def compile_script(compiler, src_dir, out_dir, script, script_dir=None):
     os.makedirs(out_dir, exist_ok=True)
     name = script + ".psc"
-    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"], cwd=HERE)
+    work_dir = script_dir or HERE
+    out = run([compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{DOORS_DIR};{WORKSHOP_DIR};{src_dir}", f"-o={out_dir}"], cwd=work_dir)
     pex = os.path.join(out_dir, script + ".pex")
     if "Compilation succeeded" not in out or not os.path.exists(pex):
         sys.exit(f"the Papyrus compile did not produce {script}.pex")
@@ -514,6 +650,8 @@ def stage_mq102_and_hello_voices(a, pts, data_dir, tmp_dir, has_explicit_hello_v
 
 
 def stage(a):
+    if getattr(a, "codsworth_race_framing", False) and getattr(a, "codsworth_handy", None):
+        sys.exit("--codsworth-race-framing cannot be used together with --codsworth-handy")
     with open(os.path.join(HERE, SCRIPT + ".psc"), encoding="utf-8") as f:
         psc = f.read()
     props = mandatory_properties(psc)
@@ -550,6 +688,9 @@ def stage(a):
         if problem:
             sys.exit(f"{problem}; attempt kept in {out}")
 
+        if getattr(a, "codsworth_race_framing", False) and getattr(a, "codsworth_handy", None):
+            sys.exit("--codsworth-race-framing cannot be used together with --codsworth-handy")
+
         alias = [] if a.alias else ["--no-alias"]
         cods = [] if a.codsworth else ["--no-codsworth"]
         assets = set()
@@ -558,6 +699,16 @@ def stage(a):
                 sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
             assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
             cods = ["--codsworth-model", CODSWORTH_MESH]
+        if getattr(a, "codsworth_handy", None):
+            if not a.codsworth:
+                sys.exit("--codsworth-handy needs Codsworth (drop --no-codsworth)")
+            template, handy_copied = copy_handy_bundle(a.codsworth_handy, os.path.join(out, "Data"))
+            assets |= set(handy_copied)
+            cods = ["--codsworth-model", HANDY_MESH, "--codsworth-handy", template]
+        if a.codsworth:
+            proxy_rel = stage_codsworth_talk_proxy(a.starfield, os.path.join(out, "Data"))
+            if proxy_rel:
+                assets.add(proxy_rel)
 
         has_explicit_voice = bool(getattr(a, "codsworth_voice", None))
         if has_explicit_voice:
@@ -579,13 +730,46 @@ def stage(a):
             if preston_voice_json:
                 alias = alias + ["--preston-voice", preston_voice_json]
 
+        if getattr(a, "codsworth_race_framing", False):
+            cods = cods + ["--codsworth-race-framing", "1"]
+
         looks_args = []
         if getattr(a, "actor_looks_assets", None):
             assets |= set(copy_actor_looks_assets(a.actor_looks_assets, os.path.join(out, "Data")))
             looks_args = ["--actor-looks-dir", a.actor_looks_assets]
 
-        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods + looks_args)
-        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods + looks_args)
+        r11_full = bool(int(getattr(a, "r11_full_mission", 0) or 0))
+        fo4_anims = bool(int(getattr(a, "fo4_human_anims", 0) or 0))
+        t1b_ready = bool(int(getattr(a, "task1b_vault_recovery", 0) or 0))
+        creature_slots = getattr(a, "creature_slots", None)
+        creatures_esm = getattr(a, "creatures_esm", None)
+        fo4_human_anims_esm = getattr(a, "fo4_human_anims_esm", None)
+        load_doors_path = getattr(a, "load_doors", None)
+        game_id = getattr(a, "game", None)
+        resolved_doors_game = None
+        if r11_full or load_doors_path or game_id:
+            resolved_doors_game, _ = load_doors_config(load_doors_path, game_id)
+        r12_check_args = []
+        if r11_full:
+            r12_check_args += ["--r11-full-mission", "1"]
+        if fo4_anims:
+            r12_check_args += ["--fo4-human-anims", "1"]
+        if creature_slots:
+            r12_check_args += ["--creature-slots", creature_slots]
+        if creatures_esm:
+            r12_check_args += ["--creatures-esm", creatures_esm]
+        if fo4_human_anims_esm:
+            r12_check_args += ["--fo4-human-anims-esm", fo4_human_anims_esm]
+        if load_doors_path:
+            r12_check_args += ["--load-doors", load_doors_path]
+        if game_id:
+            r12_check_args += ["--game", game_id]
+        r12_write_args = list(r12_check_args)
+        if t1b_ready:
+            r12_write_args += ["--task1b-vault-recovery", "1"]
+
+        run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods + looks_args + r12_write_args)
+        check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods + looks_args + r12_check_args)
 
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
@@ -595,6 +779,13 @@ def stage(a):
     for scr_name in ALL_SCRIPTS:
         compiled_pex[scr_name] = compile_script(a.compiler, src, scripts_dir, scr_name)
         shutil.copy(os.path.join(HERE, scr_name + ".psc"), os.path.join(out, scr_name + ".psc"))
+    if r11_full:
+        for scr_name, scr_dir in R12_EXTRA_SCRIPTS:
+            compiled_pex[scr_name] = compile_script(a.compiler, src, scripts_dir, scr_name, script_dir=scr_dir)
+            shutil.copy(os.path.join(scr_dir, scr_name + ".psc"), os.path.join(out, scr_name + ".psc"))
+        bat_files = write_r12_h2_batches(os.path.join(out, "bat"))
+    else:
+        bat_files = []
     if os.path.isdir(work):
         shutil.rmtree(work)
 
@@ -614,6 +805,21 @@ def stage(a):
     for rel, digest in assets_sha.items():
         outputs_sha[f"Data/{rel}"] = digest
 
+    codsworth_pt = pts.get("codsworth") if a.codsworth else None
+    preston_look_note, raider_look_note, codsworth_look_note = build_look_descriptions(
+        a, codsworth_pos=(codsworth_pt["pos"] if isinstance(codsworth_pt, dict) else None)
+    )
+    provenance = build_provenance(
+        REPO,
+        mission_cli_args(a, final),
+        asset_dirs={
+            "codsworth_assets": getattr(a, "codsworth_assets", None),
+            "codsworth_handy": getattr(a, "codsworth_handy", None),
+            "actor_looks_assets": getattr(a, "actor_looks_assets", None),
+            "codsworth_voice": getattr(a, "codsworth_voice", None),
+        },
+        codsworth_race_framing=getattr(a, "codsworth_race_framing", False),
+    )
     plan = {
         "kind": "mission",
         "plugin": PLUGIN,
@@ -629,12 +835,22 @@ def stage(a):
         "stages": list(STAGES),
         "raiders": [r["src"] for r in pts["raiders"]],
         "preston": pts["preston"],
-        "preston_placeholder": PRESTON_PLACEHOLDER_NOTE,
-        "codsworth": pts.get("codsworth") if a.codsworth else None,
+        "preston_placeholder": None if getattr(a, "actor_looks_assets", None) else PRESTON_PLACEHOLDER_NOTE,
+        "preston_looks": preston_look_note,
+        "raider_looks": raider_look_note,
+        "codsworth_looks": codsworth_look_note,
+        "codsworth": codsworth_pt,
         "sanctuary_workbench": {"fo4_src": "0250FE", "core_base": "0A2ECD", "core_ref": "005C50",
                                 "merged_pos": [-2329.25043, -1420.19271, 112.08571]},
         "assets": assets_sha,
+        "r11_full_mission": r11_full,
+        "fo4_human_anims": fo4_anims,
+        "task1b_vault_recovery": t1b_ready,
+        "creature_slots": creature_slots,
+        "load_doors_game": resolved_doors_game,
+        "bat": bat_files,
         "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log",
+        **provenance,
     }
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
@@ -651,11 +867,11 @@ def stage(a):
 - QUST FO4SF_MQ103 (0x0A50, Jewel of the Commonwealth — Diamond City Gate / Piper / Mayor / Valentine Detective Agency, NOT StartGameEnabled),
 - QUST FO4SF_MQ104 (0x0A80, Unlikely Valentine — Park Street Station / Vault 114 / Nick Valentine / Skinny Malone, NOT StartGameEnabled),
 - QUST FO4SF_MQ105 (0x0AB0, Getting a Clue — Valentine Agency / Kellogg's House / Cigar Trail / Fort Hagen 0D handoff, NOT StartGameEnabled).
-Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {PRESTON_PLACEHOLDER_NOTE}.
-Raiders: {len(pts['raiders'])} ACHR(s) of FO4_LvlRaider ({raiders}).
-Codsworth: {"NPC_ FO4_Codsworth (0x0810, FO4SF_CodsworthRace AllowPcDialog + FO4SF_CodsworthVoice AllowDefaultDialog) at " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
+Preston Garvey (0x0801 / ACHR 0x0802 at {pts['preston']['pos']} m): {preston_look_note}.
+Raiders: {len(pts['raiders'])} ACHR(s) ({raider_look_note}; {raiders}).
+Codsworth: {codsworth_look_note}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
-Scripts compiled into Data\\Scripts\\: {", ".join(s + ".pex" for s in ALL_SCRIPTS)}.
+Scripts compiled into Data\\Scripts\\: {", ".join(s + ".pex" for s in compiled_pex)}.
 The follow command is test-only (requires FO4SFCoreValues.esm:0x000860 FO4SF_TestModeEnabled != 0):
   cgf "FO4SF_COMPreston.FollowTest"
 Install (game closed): fold this stage into a copy of the core set and verify it first:
@@ -664,8 +880,90 @@ Log: {plan['log']} (read with: python scripts\\mission\\make_mission.py log).
 Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
-    print(f"staged {final}: {PLUGIN}, " + ", ".join(f"Data\\Scripts\\{s}.pex" for s in ALL_SCRIPTS) +
+    print(f"staged {final}: {PLUGIN}, " + ", ".join(f"Data\\Scripts\\{s}.pex" for s in compiled_pex) +
           ", offline_check.txt, plan.json, README.txt")
+
+
+def write_r12_h2_batches(bat_dir):
+    """Write P3-clean R12/R13 2h console batch files into bat_dir (outside Data/)."""
+    batches = {
+        "h2st.txt": (
+            "; 2h globals & quest state check (06=FO4SFCoreValues, 09=FO4SFMission)\n"
+            "getglobalvalue 06000860\n"
+            "getglobalvalue 06000865\n"
+            "getglobalvalue 09000979\n"
+            "getglobalvalue 09000B8B\n"
+            "getglobalvalue 09000B8C\n"
+            "getglobalvalue 09000B8D\n"
+            "getglobalvalue 09000B8E\n"
+            "sqv 09000800\n"
+            "sqv 09000816\n"
+            "sqv 09000B90\n"
+        ),
+        "h2h2.txt": (
+            "; < 156 m hop: Sanctuary House 01 -> Red Rocket North\n"
+            "player.setpos x -2210.00\n"
+            "player.setpos y -1520.00\n"
+            "player.setpos z 108.00\n"
+        ),
+        "h2h3.txt": (
+            "; < 131 m hop: Red Rocket North -> Red Rocket South\n"
+            "player.setpos x -2120.00\n"
+            "player.setpos y -1615.00\n"
+            "player.setpos z 98.00\n"
+        ),
+        "h2h4.txt": (
+            "; < 135 m hop: Red Rocket South -> Concord Museum street\n"
+            "player.setpos x -2015.00\n"
+            "player.setpos y -1700.00\n"
+            "player.setpos z 90.00\n"
+            "player.setangle z 90\n"
+        ),
+        "h2f.txt": (
+            "; Enter FO4Port_ConcordMuseum01 (0x0100E2F4, lobby NAVM tri 87)\n"
+            "coc FO4Port_ConcordMuseum01\n"
+            "player.setpos x 7.73\n"
+            "player.setpos y 0.91\n"
+            "player.setpos z -0.90\n"
+            "player.setangle z 270\n"
+        ),
+        "h2b.txt": (
+            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump to basement Novice gate (0x0100EDF0 at -13.714, -0.457, -3.657)\n"
+            "player.setpos x -14.38\n"
+            "player.setpos y -0.10\n"
+            "player.setpos z -3.32\n"
+            "player.setangle z 90\n"
+        ),
+        "h2k.txt": (
+            "; INTERIOR-ONLY (run ONLY AFTER `bat h2f` inside FO4Port_ConcordMuseum01): jump outside 3F PrestonDoorREF (5.486, -7.314, 9.143)\n"
+            "player.setpos x 4.20\n"
+            "player.setpos y -7.25\n"
+            "player.setpos z 9.15\n"
+            "player.setangle z 90\n"
+        ),
+        "h2p.txt": (
+            "; Grant Bobby Pin & Starfield Digipick for Novice lock 0x0100EDF0 testing (Row 5b)\n"
+            "player.additem 0000000A 2\n"
+            "player.additem 060008A5 2\n"
+        ),
+        "h2r.txt": (
+            "; Exterior Museum roof bulkhead (FO4 0002C1C6 XTEL arrival, facing ExtRoofIn door at -1991.27, -1722.57)\n"
+            "player.setpos x -1990.58\n"
+            "player.setpos y -1724.19\n"
+            "player.setpos z 97.82\n"
+            "player.setangle z 335\n"
+        ),
+    }
+    os.makedirs(bat_dir, exist_ok=True)
+    for fname, body in sorted(batches.items()):
+        stem = os.path.splitext(fname)[0]
+        if re.search(r"[mnv]", fname, re.I) or re.search(r"[mnv]", f"bat {stem}", re.I):
+            raise ValueError(f"P3 violation in batch name: {fname!r}")
+        if re.search(r"\bFO4SF_[A-Za-z0-9_]+\b", body):
+            raise ValueError(f"P3 violation (stripped FO4SF_ EDID) inside {fname!r}")
+        with open(os.path.join(bat_dir, fname), "w", encoding="utf-8", newline="\n") as f:
+            f.write(body)
+    return sorted(batches)
 
 
 def copy_assets(src, data):
@@ -698,6 +996,77 @@ def copy_assets(src, data):
                 shutil.copy2(os.path.join(src, rel), dst)
                 copied.append(rel_slash)
     return copied
+
+
+def handy_bundle_files(src):
+    """robot-anim: {path under the bundle's Data: path under the mission's Data} for Codsworth on the Mr. Handy body.
+    Takes the Handy mesh, skeleton, rig, clips and geometry, the manifests of the template race's own sub-graph keys, and
+    its generated sub-graph text renamed for FO4SF_CodsworthRace. Leaves the bundle's Mini Bot test files out."""
+    from fo4sf import handy_race as hr
+    from fo4sf.planet import esm
+    template = os.path.join(src, HANDY_TEMPLATE)
+    root = os.path.join(src, "Data")
+    if not os.path.isfile(template) or not os.path.isdir(root):
+        sys.exit(f"--codsworth-handy {src} is not a stage_ra2_handy.py bundle ({HANDY_TEMPLATE} and Data\\)")
+    with esm.Plugin(template) as p:
+        race = next((r for r in p.records("RACE") if r.edid == HANDY_RACE_EDID), None)
+    if race is None:
+        sys.exit(f"--codsworth-handy: {HANDY_TEMPLATE} has no RACE {HANDY_RACE_EDID}")
+    keys = {f"{hr.manifest_key(g, f)}.txt" for g, f in hr.race_subgraph_sets(race)}
+    gsd = f"meshes/animtextdata/generatedsubgraphdata/{HANDY_RACE_EDID.lower()}.txt"
+    out = {}
+    for dirpath, _, files in os.walk(root):
+        for name in files:
+            rel = os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/")
+            low = rel.lower()
+            parts = low.split("/")
+            if low == gsd:
+                out[rel] = "meshes/AnimTextData/GeneratedSubgraphData/" + CODSWORTH_RACE_EDID.lower() + ".txt"
+            elif low.startswith(HANDY_DIRS):
+                out[rel] = rel
+            elif (len(parts) == 4 and parts[:2] == ["meshes", "animtextdata"] and
+                  parts[2] in {d.lower() for d in HANDY_MANIFEST_DIRS} and name in keys):
+                out[rel] = rel
+    mesh = "meshes/" + HANDY_MESH.replace("\\", "/").lower()
+    if not any(v.lower() == mesh for v in out.values()):
+        sys.exit(f"--codsworth-handy: the bundle has no Data\\meshes\\{HANDY_MESH}")
+    if gsd not in {k.lower() for k in out}:
+        sys.exit(f"--codsworth-handy: the bundle has no generated sub-graph text for {HANDY_RACE_EDID}")
+    return template, out
+
+
+def copy_handy_bundle(src, data):
+    """Copies handy_bundle_files() into data; refuses to overwrite. Returns (template plugin, copied paths under data)."""
+    template, files = handy_bundle_files(src)
+    copied = []
+    for rel, out_rel in sorted(files.items()):
+        dst = os.path.join(data, *out_rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"--codsworth-handy would overwrite Data/{out_rel}")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(src, "Data", *rel.split("/")), dst)
+        copied.append(out_rel)
+    return template, copied
+
+
+def stage_codsworth_talk_proxy(starfield_esm, data_dir):
+    """Build Data/meshes/fo4sf/actors/handy/codsworth_talk_proxy.nif from Starfield's decorator marker NIF
+    (keeping its Havok sphere collision/activation hull intact with Invisible.mat) if Starfield - Meshes01.ba2
+    is present beside starfield_esm. Returns the relative Data/ asset path, or None for synthetic tests."""
+    sf_data = os.path.dirname(os.path.abspath(starfield_esm))
+    meshes01 = os.path.join(sf_data, "Starfield - Meshes01.ba2")
+    if not os.path.isfile(meshes01):
+        return None
+    from fo4sf import ba2, sfnif
+
+    arc = ba2.Ba2(meshes01)
+    raw = arc.read(DECORATOR_MARKER_NIF)
+    proxy_bytes = sfnif.build_codsworth_talk_proxy_nif(raw)
+    dst = os.path.join(data_dir, *CODSWORTH_TALK_PROXY_MESH.split("/"))
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(dst, "wb") as f:
+        f.write(proxy_bytes)
+    return CODSWORTH_TALK_PROXY_MESH
 
 
 def copy_actor_looks_assets(src, data):
@@ -1163,8 +1532,29 @@ def main(argv=None):
                    help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
     s.add_argument("--codsworth-assets", default=None,
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
+    s.add_argument("--codsworth-handy", default=None,
+                   help="a scripts/probes/stage_ra2_handy.py bundle: Codsworth on the Mr. Handy body with his Fallout 4 "
+                        "skeleton and animations (race and body parts from its plugin, files from its Data)")
     s.add_argument("--actor-looks-assets", default=None,
                    help="a stage_c5_actor_looks.py output folder: Preston & Concord raider FO4 outfit NIF/mesh/mat/dds files")
+    s.add_argument("--r11-full-mission", nargs="?", const=1, default=0, type=int, choices=(0, 1),
+                   help="enable R11/R12 full S2-S6 story progression + museum interior + 3F scenes (default 0)")
+    s.add_argument("--creature-slots", default=None,
+                   help="optional creature-slots.json path for S2 Radroaches & S3 Bloatflies (defaults to ready=false empty)")
+    s.add_argument("--creatures-esm", default=None,
+                   help="optional FO4SFCreatures.esm path when --creature-slots has ready=true")
+    s.add_argument("--fo4-human-anims", nargs="?", const=1, default=0, type=int, choices=(0, 1),
+                   help="link FO4SF_AnimArchetypeFO4 KYWD from FO4SFHumanAnims.esm (default 0 OFF)")
+    s.add_argument("--fo4-human-anims-esm", default=None,
+                   help="optional FO4SFHumanAnims.esm path when --fo4-human-anims 1")
+    s.add_argument("--task1b-vault-recovery", nargs="?", const=1, default=0, type=int, choices=(0, 1),
+                   help="enable Task 1b Vault 111 recovery readiness gate GLOB (0xB8D=1, default 0)")
+    s.add_argument("--load-doors", default=None,
+                   help="optional per-game load_doors.json path (default: src/fo4sf/core/load_doors.json)")
+    s.add_argument("--game", default=None,
+                   help="target game id in load_doors.json (default: fo4)")
+    s.add_argument("--codsworth-race-framing", action="store_true",
+                   help="opt into ModelARace standing dialogue camera framing edits on FO4SF_CodsworthRace")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")

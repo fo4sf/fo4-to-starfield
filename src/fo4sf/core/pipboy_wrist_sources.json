@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "default_game": "fo4",
+  "games": {
+    "fo4": {
+      "enabled": true,
+      "sf_watch_template_m": "meshes/clothes/spacesuit_suitzero/spacesuit_suitzero_chronowatch_m.nif",
+      "sf_watch_template_f": "meshes/clothes/spacesuit_suitzero/spacesuit_suitzero_chronowatch_f.nif",
+      "sf_watch_template_1st_m": "meshes/clothes/spacesuit_suitzero/spacesuit_suitzero_chronowatch_m.nif",
+      "sf_watch_template_1st_f": "meshes/clothes/spacesuit_suitzero/spacesuit_suitzero_chronowatch_f.nif",
+      "source_1st": "meshes/pipboy/characterassets/pipboy.nif",
+      "source_3rd": "meshes/pipboy/characterassets/pipboylowplayer.nif",
+      "cuff_center": [5.810, 0.014, -0.106],
+      "screen_shape_prefixes": ["screen"],
+      "primary_screen_shapes": ["screen:0"],
+      "housing_excluded_prefixes": ["screen", "tapref"]
+    },
+    "fo3": {
+      "enabled": false,
+      "note": "Placeholder for Capital Wasteland Pip-Boy 3000A meshes/cuff calibration.",
+      "sf_watch_template_m": "",
+      "sf_watch_template_f": "",
+      "sf_watch_template_1st_m": "",
+      "sf_watch_template_1st_f": "",
+      "source_1st": "",
+      "source_3rd": "",
+      "cuff_center": [0.0, 0.0, 0.0],
+      "screen_shape_prefixes": ["screen"],
+      "primary_screen_shapes": ["screen:0"],
+      "housing_excluded_prefixes": ["screen", "tapref"]
+    },
+    "fnv": {
+      "enabled": false,
+      "note": "Placeholder for Mojave Pip-Boy 3000A / Pimp-Boy 3 Billion meshes/cuff calibration.",
+      "sf_watch_template_m": "",
+      "sf_watch_template_f": "",
+      "sf_watch_template_1st_m": "",
+      "sf_watch_template_1st_f": "",
+      "source_1st": "",
+      "source_3rd": "",
+      "cuff_center": [0.0, 0.0, 0.0],
+      "screen_shape_prefixes": ["screen"],
+      "primary_screen_shapes": ["screen:0"],
+      "housing_excluded_prefixes": ["screen", "tapref"]
+    }
+  }
+}

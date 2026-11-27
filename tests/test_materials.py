@@ -153,6 +153,47 @@ class MatTests(unittest.TestCase):
         self.assertFalse(op["UseReplacement"])
         self.assertNotIn("Opacity", t["Summary"]["Layer1"]["Textures"])   # template not mutated
 
+    def test_build_mat_emissive_writes_slot_seven_and_emittance_settings(self):
+        t = mini_template()
+        t["Objects"][0]["Components"].append(
+            {"Type": "BSMaterial::LayerID", "Index": 0, "Data": {"ID": "res:LAYER"}})
+        t["Objects"][1]["Components"].append(
+            {"Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": {"FileName": "Data\\old_color.dds"}})
+        m = cm.build_mat(
+            t,
+            "FO4Port_PipboyScreen2D",
+            "Data\\screen_color.dds",
+            "Data\\screen_normal.dds",
+            "Data\\screen_rough.dds",
+            emissive="Data\\screen_emissive.dds",
+            emissive_tint=(0.2, 1.0, 0.4, 1.0),
+            luminous_emittance=120.0,
+            exposure_offset=0.5,
+        )
+        files = [(c.get("Index"), c.get("Data", {}).get("FileName"))
+                 for o in m["Objects"] for c in o.get("Components", [])
+                 if c.get("Type") == "BSMaterial::MRTextureFile"]
+        self.assertIn((7, "Data\\screen_emissive.dds"), files)
+        repls = [c["Data"] for o in m["Objects"] for c in o.get("Components", [])
+                 if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == 7]
+        self.assertEqual(repls, [{"Enabled": "false"}])
+        em_comp = [c["Data"] for o in m["Objects"] for c in o.get("Components", [])
+                   if c.get("Type") == "BSMaterial::EmissiveSettingsComponent"]
+        self.assertEqual(len(em_comp), 1)
+        self.assertEqual(em_comp[0]["Enabled"], "true")
+        settings = em_comp[0]["Settings"]["Data"]
+        self.assertEqual(settings["LuminousEmittance"], "120")
+        self.assertEqual(settings["ExposureOffset"], "0.5")
+        self.assertEqual(settings["AdaptiveEmittance"], "true")
+        tint_data = settings["EmissiveTint"]["Data"]["Value"]["Data"]
+        self.assertEqual((tint_data["x"], tint_data["y"], tint_data["z"], tint_data["w"]), ("0.2", "1", "0.4", "1"))
+        self.assertEqual(m["Objects"][0]["Parent"], cm.COLOR_EMISSIVE_SHADER_MODEL)
+        self.assertIn(cm.COLOR_EMISSIVE_SHADER_MODEL, m["Import"])
+        em = m["Summary"]["Layer1"]["Textures"]["Emissive"]
+        self.assertEqual(em["File"], "Data\\screen_emissive.dds")
+        self.assertFalse(em["UseReplacement"])
+        self.assertNotIn("Emissive", t["Summary"]["Layer1"]["Textures"])   # template not mutated
+
 
 class GlassTests(unittest.TestCase):
     def test_parse_bgem_base_and_normal(self):

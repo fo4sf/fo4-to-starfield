@@ -157,7 +157,7 @@ class PageMovieTests(unittest.TestCase):
             r = subprocess.run([sys.executable, SCRIPT, "--out", out, "--page", "--channel"], capture_output=True,
                                text=True)
             self.assertEqual(r.returncode, 1)
-            self.assertIn("two different movies", r.stderr)
+            self.assertIn("different movies", r.stderr)
 
 
 class PageStageTests(unittest.TestCase):

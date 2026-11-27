@@ -13,11 +13,19 @@ Covers the eight console-free Story-mode beginning steps (`B1`..`B8`) documented
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import struct
+import zlib
 from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from pathlib import Path
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
+
+from fo4sf.ba2 import Ba2, Ba2Error
+from fo4sf.core.cross_plugin_check import CORE_VALUES_ARSENAL_RECORDS, inspect_esm_binary
+from fo4sf.planet.esm import EsmError, Plugin as RawEsmPlugin
 
 
 @dataclass(frozen=True)
@@ -116,9 +124,49 @@ BEGINNING_STEPS: Tuple[BeginningStepSpec, ...] = (
 )
 
 CODSWORTH_NIF_REL = "meshes/fo4port/actors/codsworth/codsworth.nif"
+CODSWORTH_HANDY_NIF_REL = "meshes/fo4sf/actors/handy/handy.nif"
+PRESTON_OUTFIT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyoutfit_m.nif"
+PRESTON_HAT_NIF_REL = "meshes/fo4port/armor/preston_garvey/prestongarveyhat_m.nif"
+CONCORD_RAIDER_NIF_REL = "meshes/fo4core/armor/raider04/concord_raider_m.nif"
+B5_REQUIRED_ACTOR_NIFS: Tuple[Tuple[str, str], ...] = (
+    ("Codsworth NIF", CODSWORTH_NIF_REL),
+    ("Preston outfit NIF", PRESTON_OUTFIT_NIF_REL),
+    ("Preston hat NIF", PRESTON_HAT_NIF_REL),
+    ("Concord Raider NIF", CONCORD_RAIDER_NIF_REL),
+)
 CODSWORTH_VOICE_DIR_REL = "sound/voice/fo4sfmission.esm/fo4sf_codsworthvoice"
 MIN_CODSWORTH_WEMS = 25
 MAX_PROTECTED_UNSTOPPED_HOLD_QUESTS = 4
+
+MAP_MARKERS_DIRNAME = "map-markers"
+MAP_MARKERS_PLUGIN = "FO4SFMapMarkers.esm"
+MAP_MARKERS_ARCHIVE = "FO4SFMapMarkers - Main.ba2"
+MAP_MARKERS_PEX_REL = "Scripts/FO4SF_MapMarkers.pex"
+MAP_MARKERS_SCRIPT = "FO4SF_MapMarkers"
+NEWGAME_QUEST_SCRIPT = "FO4SF_NewGameQuest"
+PEX_MAGIC = 0xFA57C0DE
+
+_PEX_FIXED_OP_ARGS: Dict[int, int] = {
+    0x00: 0,
+    0x01: 3, 0x02: 3, 0x03: 3, 0x04: 3, 0x05: 3, 0x06: 3, 0x07: 3, 0x08: 3, 0x09: 3,
+    0x0A: 2, 0x0B: 2, 0x0C: 2, 0x0D: 2, 0x0E: 2,
+    0x0F: 3, 0x10: 3, 0x11: 3, 0x12: 3, 0x13: 3,
+    0x14: 1, 0x15: 2, 0x16: 2,
+    0x1A: 1, 0x1B: 3, 0x1C: 3, 0x1D: 3,
+    0x1E: 2, 0x1F: 2, 0x20: 3, 0x21: 3, 0x22: 4, 0x23: 4,
+    0x24: 3, 0x25: 1, 0x26: 3, 0x27: 3, 0x28: 5, 0x29: 5,
+    0x2A: 3, 0x2B: 3, 0x2C: 1, 0x2D: 3, 0x2E: 1,
+    0x2F: 6,
+}
+_PEX_VARARG_OP_ARGS: Dict[int, int] = {0x17: 3, 0x18: 2, 0x19: 3}
+_PEX_DST0_OPS: frozenset[int] = frozenset({
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+    0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+    0x0F, 0x10, 0x11, 0x12, 0x13,
+    0x1B, 0x1E, 0x1F, 0x20, 0x24, 0x25, 0x26,
+})
+_PEX_DST1_OPS: frozenset[int] = frozenset({0x18, 0x22, 0x23, 0x28, 0x29})
+_PEX_DST2_OPS: frozenset[int] = frozenset({0x17, 0x19, 0x1C})
 
 NOT_BUILT_MUSEUM_CONTENT: Tuple[str, ...] = (
     "laser musket",
@@ -153,7 +201,7 @@ SESSION2_SHEET_PASS_SPECS: Tuple[Tuple[str, str], ...] = (
     ("Card 2", "FO4SF_NEWGAME rt=<rt> start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell"),
     ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 10 by={CANONICAL_CAUSE_TRIGGER}"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 20 by=scene"),
-    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<equipped> base=<base>"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console"),
@@ -217,6 +265,223 @@ def evaluate_session2_sheet_lines(log_dir: str) -> List[Dict[str, Optional[str]]
     return out
 
 
+_DISALLOWED_MARKER_TOKENS = ("decoratormarker", "xmarker", "marker", "editor")
+
+
+def is_disallowed_marker_model(model_path: Optional[str]) -> bool:
+    """Return True if an ACTI MODL path is missing/empty or uses a disallowed marker mesh."""
+    if not model_path or not isinstance(model_path, str):
+        return True
+    norm = model_path.replace("/", "\\").strip()
+    if not norm:
+        return True
+    norm_low = norm.lower()
+    stem_low = os.path.splitext(os.path.basename(norm))[0].lower()
+    return any(tok in norm_low or tok in stem_low for tok in _DISALLOWED_MARKER_TOKENS)
+
+
+def _iter_esm_subrecords(body: bytes):
+    i, n = 0, len(body)
+    ext_len: Optional[int] = None
+    while i + 6 <= n:
+        sig = body[i : i + 4]
+        sz = struct.unpack_from("<H", body, i + 4)[0]
+        i += 6
+        if sig == b"XXXX" and sz == 4 and i + 4 <= n:
+            ext_len = struct.unpack_from("<I", body, i)[0]
+            i += 4
+            continue
+        if ext_len is not None:
+            sz = ext_len
+            ext_len = None
+        if i + sz > n:
+            break
+        yield sig, body[i : i + sz]
+        i += sz
+
+
+def find_bad_placed_activators(esm_path: str) -> Tuple[List[str], List[str]]:
+    """Inspect esm_path for any placed ACTI with empty/missing/marker MODL or zero OBND.
+
+    Returns (problems, sorted_distinct_placed_acti_models).
+    """
+    with open(esm_path, "rb") as fp:
+        raw = fp.read()
+    if len(raw) < 24 or raw[:4] != b"TES4":
+        return [], []
+    hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+    pos = 24 + hdr_sz
+    if pos >= len(raw):
+        return [], []
+
+    actis: Dict[int, Tuple[str, Optional[str], bytes]] = {}
+    placed_refs: List[Tuple[int, str, int]] = []
+
+    def _walk(start: int, end: int) -> None:
+        cur = start
+        while cur + 24 <= end:
+            sig = raw[cur : cur + 4]
+            sz = struct.unpack_from("<I", raw, cur + 4)[0]
+            if sig == b"GRUP":
+                if sz < 24 or cur + sz > end:
+                    break
+                _walk(cur + 24, cur + sz)
+                cur += sz
+                continue
+            rflags = struct.unpack_from("<I", raw, cur + 8)[0]
+            rfid = struct.unpack_from("<I", raw, cur + 12)[0]
+            rbody_end = min(end, cur + 24 + sz)
+            if sig in (b"ACTI", b"REFR") and rbody_end - (cur + 24) >= 0:
+                payload = raw[cur + 24 : rbody_end]
+                if (rflags & 0x40000) and len(payload) >= 4:
+                    try:
+                        payload = zlib.decompress(payload[4:])
+                    except zlib.error:
+                        payload = b""
+                if sig == b"ACTI":
+                    edid, modl, obnd = "", None, b""
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            edid = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"MODL":
+                            modl = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"OBND":
+                            obnd = sp
+                    actis[rfid] = (edid, modl, obnd)
+                else:
+                    redid, base_fid = "", 0
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            redid = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"NAME" and len(sp) == 4:
+                            base_fid = struct.unpack("<I", sp)[0]
+                    if base_fid:
+                        placed_refs.append((rfid, redid, base_fid))
+            cur = rbody_end
+
+    _walk(pos, len(raw))
+
+    problems: List[str] = []
+    models: Set[str] = set()
+    reported_bad: Set[Tuple[int, int]] = set()
+    esm_name = os.path.basename(esm_path)
+    for rfid, redid, base_fid in placed_refs:
+        if base_fid not in actis:
+            continue
+        edid, modl, obnd = actis[base_fid]
+        bad_reasons: List[str] = []
+        if is_disallowed_marker_model(modl):
+            bad_reasons.append(f"invalid/marker MODL={modl!r}")
+        if len(obnd) != 24:
+            bad_reasons.append(f"missing OBND (len={len(obnd)})")
+        else:
+            x0, y0, z0, x1, y1, z1 = struct.unpack("<6f", obnd)
+            if (x1 - x0) <= 1e-3 or (y1 - y0) <= 1e-3 or (z1 - z0) <= 1e-3:
+                bad_reasons.append(f"zero ObjectBounds ({x0:.2f}..{x1:.2f}, {y0:.2f}..{y1:.2f}, {z0:.2f}..{z1:.2f})")
+        if bad_reasons and (rfid, base_fid) not in reported_bad:
+            reported_bad.add((rfid, base_fid))
+            problems.append(
+                f"{esm_name}: placed ACTI {edid or hex(base_fid)} (0x{base_fid:08X}) on "
+                f"{redid or hex(rfid)} (0x{rfid:08X}) has " + "; ".join(bad_reasons)
+            )
+        elif modl:
+            models.add(modl.replace("/", "\\").lstrip("\\"))
+    return problems, sorted(models)
+
+
+def verify_placed_acti_assets(
+    esm_path: str,
+    data_dir: str,
+    extra_ba2_paths: Sequence[str] = (),
+) -> List[str]:
+    """Verify .nif, .mesh, .mat, and .dds dependencies exist for placed ACTIs in esm_path."""
+    problems, placed_models = find_bad_placed_activators(esm_path)
+    if not placed_models:
+        return problems
+
+    from . import nif as fo4_nif, sfnif as sf_nif
+    from .ba2 import Ba2
+
+    opened_ba2s: List[Tuple[Ba2, Dict[str, str]]] = []
+    for bp in extra_ba2_paths:
+        if bp and os.path.isfile(bp):
+            arch = Ba2(bp)
+            idx = {e.name.replace("/", "\\").lstrip("\\").lower(): e.name for e in arch.entries}
+            opened_ba2s.append((arch, idx))
+
+    def _read_asset(rel_backslash: str, require_port_ba2: bool = False) -> Tuple[Optional[bytes], bool]:
+        rel_clean = rel_backslash.replace("/", "\\").lstrip("\\")
+        fs_path = os.path.join(data_dir, *rel_clean.split("\\"))
+        if os.path.isfile(fs_path):
+            with open(fs_path, "rb") as fp:
+                return fp.read(), True
+        low = rel_clean.lower()
+        for arch, idx in opened_ba2s:
+            if low in idx:
+                return arch.read(idx[low]), True
+        if require_port_ba2 and not opened_ba2s:
+            return None, False
+        return None, True
+
+    checked_mats: Set[str] = set()
+    for rel_modl in placed_models:
+        low_modl = rel_modl.lower()
+        nif_rel = rel_modl if low_modl.startswith("meshes\\") else f"meshes\\{rel_modl}"
+        is_port_asset = "\\fo4port\\" in f"\\{low_modl}" or low_modl.startswith("fo4port\\")
+        nif_bytes, can_verify_asset = _read_asset(nif_rel, require_port_ba2=is_port_asset)
+        if not can_verify_asset:
+            continue
+        if nif_bytes is None:
+            problems.append(f"B1: missing ACTI NIF asset Data/{nif_rel.replace(os.sep, '/')}")
+            continue
+        parsed = fo4_nif.parse(nif_bytes)
+        for i, blk in enumerate(parsed.blocks):
+            if parsed.type_of(i) == "BSGeometry":
+                for mesh in sf_nif.parse_bsgeometry(blk).meshes:
+                    if mesh is not None:
+                        mrel = "geometries\\" + mesh.path.decode("latin-1").replace("/", "\\").lstrip("\\") + ".mesh"
+                        mbytes, m_checked = _read_asset(mrel, require_port_ba2=is_port_asset)
+                        if m_checked and mbytes is None:
+                            problems.append(f"B1: missing .mesh {mrel} referenced by {nif_rel}")
+        for raw_str in parsed.strings:
+            sp = raw_str.decode("latin-1").replace("/", "\\").lstrip("\\")
+            sp_low = sp.lower()
+            if sp_low.startswith("materials\\fo4") and sp_low.endswith(".mat") and sp_low not in checked_mats:
+                checked_mats.add(sp_low)
+                mat_bytes, mat_checked = _read_asset(sp, require_port_ba2=is_port_asset)
+                if not mat_checked:
+                    continue
+                if mat_bytes is None:
+                    problems.append(f"B1: missing .mat {sp} referenced by {nif_rel}")
+                    continue
+                mat_obj = json.loads(mat_bytes.decode("utf-8-sig"))
+                stack: List[object] = [mat_obj]
+                while stack:
+                    cur = stack.pop()
+                    if isinstance(cur, dict):
+                        stack.extend(cur.values())
+                    elif isinstance(cur, list):
+                        stack.extend(cur)
+                    elif isinstance(cur, str):
+                        tp = cur.replace("/", "\\").lstrip("\\")
+                        tp_low = tp.lower()
+                        if tp_low.startswith("data\\"):
+                            tp = tp[5:]
+                            tp_low = tp.lower()
+                        if tp_low.startswith("textures\\fo4") and tp_low.endswith(".dds"):
+                            dbytes, d_checked = _read_asset(tp, require_port_ba2=is_port_asset)
+                            if d_checked and dbytes is None:
+                                problems.append(f"B1: missing .dds {tp} referenced by {sp}")
+    return problems
+
+
+BASE_SKIP_ACTI_PLUGINS: frozenset[str] = frozenset({
+    "fo4actorraider.esm",
+    "fo4terraincore.esm",
+    "fo4terraincore_mars.esm",
+})
+
+
 def _is_tes4_plugin(path: str) -> bool:
     try:
         with open(path, "rb") as fp:
@@ -226,7 +491,1181 @@ def _is_tes4_plugin(path: str) -> bool:
         return False
 
 
-def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
+def _sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _pex_read_wstr(buf: bytes, pos: int) -> Tuple[str, int]:
+    if pos + 2 > len(buf):
+        raise ValueError(f"truncated PEX string length at {pos}")
+    n = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    if pos + n > len(buf):
+        raise ValueError(f"truncated PEX string ({n} bytes) at {pos}")
+    return buf[pos:pos + n].decode("utf-8", "replace"), pos + n
+
+
+def _pex_read_var_data(buf: bytes, pos: int, strings: Sequence[str]) -> Tuple[Tuple[str, object], int]:
+    if pos >= len(buf):
+        raise ValueError(f"truncated PEX variable value at {pos}")
+    vtype = buf[pos]
+    pos += 1
+    if vtype == 0:
+        return ("null", None), pos
+    if vtype in (1, 2):
+        if pos + 2 > len(buf):
+            raise ValueError(f"truncated PEX string index at {pos}")
+        idx = struct.unpack_from("<H", buf, pos)[0]
+        if idx >= len(strings):
+            raise ValueError(f"PEX string index {idx} out of range ({len(strings)})")
+        return ("id" if vtype == 1 else "str", strings[idx]), pos + 2
+    if vtype == 3:
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX int at {pos}")
+        return ("int", struct.unpack_from("<i", buf, pos)[0]), pos + 4
+    if vtype == 4:
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX float at {pos}")
+        return ("float", struct.unpack_from("<f", buf, pos)[0]), pos + 4
+    if vtype == 5:
+        if pos >= len(buf):
+            raise ValueError(f"truncated PEX bool at {pos}")
+        return ("bool", bool(buf[pos])), pos + 1
+    raise ValueError(f"unsupported PEX variable data type {vtype} at {pos - 1}")
+
+
+def _pex_read_fn_body(buf: bytes, pos: int, strings: Sequence[str]) -> Tuple[dict, int]:
+    if pos + 11 > len(buf):
+        raise ValueError(f"truncated PEX function header at {pos}")
+    ret_idx, _doc, _uflags, flags, pcnt = struct.unpack_from("<HHIBH", buf, pos)
+    pos += 11
+    params: List[Tuple[str, str]] = []
+    for _ in range(pcnt):
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX parameter at {pos}")
+        pnm, ptp = struct.unpack_from("<HH", buf, pos)
+        pos += 4
+        params.append((strings[pnm], strings[ptp]))
+    if pos + 2 > len(buf):
+        raise ValueError(f"truncated PEX local count at {pos}")
+    lcnt = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    locals_list: List[Tuple[str, str]] = []
+    for _ in range(lcnt):
+        if pos + 4 > len(buf):
+            raise ValueError(f"truncated PEX local at {pos}")
+        lnm, ltp = struct.unpack_from("<HH", buf, pos)
+        pos += 4
+        locals_list.append((strings[lnm], strings[ltp]))
+    if pos + 2 > len(buf):
+        raise ValueError(f"truncated PEX instruction count at {pos}")
+    icnt = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    instructions: List[Tuple[int, List[object]]] = []
+    for _ in range(icnt):
+        if pos >= len(buf):
+            raise ValueError(f"truncated PEX instruction at {pos}")
+        op = buf[pos]
+        pos += 1
+        args: List[object] = []
+        if op in _PEX_FIXED_OP_ARGS:
+            for _ in range(_PEX_FIXED_OP_ARGS[op]):
+                val, pos = _pex_read_var_data(buf, pos, strings)
+                args.append(val)
+        elif op in _PEX_VARARG_OP_ARGS:
+            for _ in range(_PEX_VARARG_OP_ARGS[op]):
+                val, pos = _pex_read_var_data(buf, pos, strings)
+                args.append(val)
+            vc_arg, pos = _pex_read_var_data(buf, pos, strings)
+            if vc_arg[0] != "int" or not isinstance(vc_arg[1], int) or vc_arg[1] < 0:
+                raise ValueError(f"invalid PEX vararg count {vc_arg!r} at {pos}")
+            vargs: List[Tuple[str, object]] = []
+            for _ in range(vc_arg[1]):
+                val, pos = _pex_read_var_data(buf, pos, strings)
+                vargs.append(val)
+            args.append(vargs)
+        else:
+            raise ValueError(f"unsupported PEX opcode 0x{op:02X} at {pos - 1}")
+        instructions.append((op, args))
+    return {
+        "return_type": strings[ret_idx],
+        "flags": flags,
+        "params": params,
+        "locals": locals_list,
+        "instructions": instructions,
+    }, pos
+
+
+def _parse_pex_objects(buf: bytes) -> Dict[str, Dict[str, object]]:
+    """Parse a compiled Papyrus `.pex` binary into `{object_name: {'vars': ..., 'functions': ...}}`."""
+    if len(buf) < 16:
+        raise ValueError("truncated PEX header")
+    magic, major, minor, _gid = struct.unpack_from("<IBBH", buf, 0)
+    if magic != PEX_MAGIC:
+        raise ValueError(f"not a little-endian PEX file (magic=0x{magic:08X})")
+    pos = 16
+    for _ in range(3):
+        _, pos = _pex_read_wstr(buf, pos)
+    if pos + 2 > len(buf):
+        raise ValueError("truncated PEX string table count")
+    scount = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+    strings: List[str] = []
+    for _ in range(scount):
+        s, pos = _pex_read_wstr(buf, pos)
+        strings.append(s)
+
+    if pos >= len(buf):
+        raise ValueError("truncated PEX debug flag")
+    has_debug = buf[pos]
+    pos += 1
+    if has_debug:
+        pos += 8
+        if pos + 2 > len(buf):
+            raise ValueError("truncated PEX debug function count")
+        fc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        for _ in range(fc):
+            pos += 7
+            if pos + 2 > len(buf):
+                raise ValueError("truncated PEX debug line count")
+            ic = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2 + (ic * 2)
+        if (major, minor) >= (3, 9):
+            pgc = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+            for _ in range(pgc):
+                pos += 10
+                nc = struct.unpack_from("<H", buf, pos)[0]
+                pos += 2 + (nc * 2)
+            soc = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+            for _ in range(soc):
+                pos += 4
+                nc = struct.unpack_from("<H", buf, pos)[0]
+                pos += 2 + (nc * 2)
+
+    if pos + 2 > len(buf):
+        raise ValueError("truncated PEX user flags")
+    ufc = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2 + (ufc * 3)
+    if pos + 2 > len(buf):
+        raise ValueError("truncated PEX object count")
+    ocount = struct.unpack_from("<H", buf, pos)[0]
+    pos += 2
+
+    objects: Dict[str, Dict[str, object]] = {}
+    for _ in range(ocount):
+        if pos + 17 > len(buf):
+            raise ValueError(f"truncated PEX object header at {pos}")
+        oname_idx, _osize = struct.unpack_from("<HI", buf, pos)
+        pos += 6
+        pos += 11  # parent, docstring, constFlag, userFlags, autoStateName
+        if (major, minor) >= (3, 9):
+            st_cnt = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2
+            for _ in range(st_cnt):
+                _sn, mc = struct.unpack_from("<HH", buf, pos)
+                pos += 4
+                for _ in range(mc):
+                    pos += 8
+                    _, pos = _pex_read_var_data(buf, pos, strings)
+                    pos += 3
+
+        vc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        obj_vars: List[Tuple[str, str]] = []
+        for _ in range(vc):
+            vn_idx, vt_idx, _vu = struct.unpack_from("<HHI", buf, pos)
+            pos += 8
+            _, pos = _pex_read_var_data(buf, pos, strings)
+            if (major, minor) >= (3, 9):
+                pos += 1
+            obj_vars.append((strings[vn_idx], strings[vt_idx]))
+
+        if (major, minor) >= (3, 10):
+            gc = struct.unpack_from("<H", buf, pos)[0]
+            pos += 2 + (gc * 2)
+
+        pc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        for _ in range(pc):
+            _pn, _pt, _pd, _pu, pf = struct.unpack_from("<HHHIB", buf, pos)
+            pos += 11
+            if pf & 4:
+                pos += 2
+            else:
+                if pf & 1:
+                    _, pos = _pex_read_fn_body(buf, pos, strings)
+                if pf & 2:
+                    _, pos = _pex_read_fn_body(buf, pos, strings)
+
+        stc = struct.unpack_from("<H", buf, pos)[0]
+        pos += 2
+        fns: Dict[Tuple[str, str], dict] = {}
+        for _ in range(stc):
+            sn_idx, fnc = struct.unpack_from("<HH", buf, pos)
+            pos += 4
+            state_name = strings[sn_idx]
+            for _ in range(fnc):
+                fn_idx = struct.unpack_from("<H", buf, pos)[0]
+                pos += 2
+                body, pos = _pex_read_fn_body(buf, pos, strings)
+                fns[(state_name, strings[fn_idx])] = body
+        objects[strings[oname_idx]] = {"vars": obj_vars, "functions": fns}
+
+    if pos != len(buf):
+        raise ValueError(f"PEX parse ended at byte {pos}, expected {len(buf)}")
+    return objects
+
+
+def pex_defined_functions(buf: bytes, script_name: str = MAP_MARKERS_SCRIPT) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Return `(default_state_map, all_states_map)` of `{fn_casefold: fn_name}` defined on `script_name`."""
+    objects = _parse_pex_objects(buf)
+    target = next((obj for name, obj in objects.items() if name.casefold() == script_name.casefold()), None)
+    if target is None:
+        raise ValueError(f"PEX lacks script object {script_name}")
+    default_fns: Dict[str, str] = {}
+    all_fns: Dict[str, str] = {}
+    for (state_name, fn_name) in target["functions"]:
+        low = fn_name.casefold()
+        all_fns.setdefault(low, fn_name)
+        if state_name == "":
+            default_fns.setdefault(low, fn_name)
+    return default_fns, all_fns
+
+
+def extract_mapmarker_calls_from_pex(
+    buf: bytes,
+    script_name: str = MAP_MARKERS_SCRIPT,
+    caller_object: Optional[str] = NEWGAME_QUEST_SCRIPT,
+) -> List[str]:
+    """Extract member function names called on `script_name` (via `CastAs` + `CallFunction` or typed refs) from PEX."""
+    objects = _parse_pex_objects(buf)
+    target_low = script_name.casefold()
+    called: Dict[str, str] = {}
+
+    selected_objs = [
+        obj for name, obj in objects.items()
+        if caller_object is None or name.casefold() == caller_object.casefold()
+    ]
+    for obj in selected_objs:
+        typed_obj_vars = {vn.casefold() for vn, vt in obj["vars"] if vt.casefold() == target_low}
+        for _fn_key, body in obj["functions"].items():
+            typed_vars = set(typed_obj_vars)
+            for vn, vt in body["params"] + body["locals"]:
+                if vt.casefold() == target_low:
+                    typed_vars.add(vn.casefold())
+            mm_vars = set(typed_vars)
+
+            for op, args in body["instructions"]:
+                if op == 0x17:
+                    method = str(args[0][1])
+                    recv = args[1]
+                    dst = args[2]
+                    vargs = args[3]
+                    if recv[0] == "id" and str(recv[1]).casefold() in mm_vars:
+                        m_low = method.casefold()
+                        if m_low in ("callfunction", "callfunctionnowait"):
+                            if vargs and vargs[0][0] == "str" and str(vargs[0][1]):
+                                tgt = str(vargs[0][1])
+                                called.setdefault(tgt.casefold(), tgt)
+                        elif m_low != "castas":
+                            called.setdefault(m_low, method)
+                    if dst[0] == "id":
+                        dst_low = str(dst[1]).casefold()
+                        if (
+                            method.casefold() == "castas"
+                            and vargs
+                            and vargs[0][0] == "str"
+                            and str(vargs[0][1]).casefold() == target_low
+                        ):
+                            mm_vars.add(dst_low)
+                        elif dst_low not in typed_vars:
+                            mm_vars.discard(dst_low)
+                    continue
+
+                if op in (0x0D, 0x0E):
+                    dst, src = args[0], args[1]
+                    if dst[0] == "id":
+                        dst_low = str(dst[1]).casefold()
+                        if src[0] == "id" and str(src[1]).casefold() in mm_vars:
+                            mm_vars.add(dst_low)
+                        elif dst_low not in typed_vars:
+                            mm_vars.discard(dst_low)
+                    continue
+
+                dst_idx = 0 if op in _PEX_DST0_OPS else 1 if op in _PEX_DST1_OPS else 2 if op in _PEX_DST2_OPS else None
+                if dst_idx is not None and dst_idx < len(args):
+                    dst = args[dst_idx]
+                    if isinstance(dst, tuple) and dst[0] == "id":
+                        dst_low = str(dst[1]).casefold()
+                        if dst_low not in typed_vars:
+                            mm_vars.discard(dst_low)
+
+    return sorted(called.values())
+
+
+def _strip_psc_comments_and_docs(psc_text: str) -> str:
+    """Strip Papyrus `{ ... }` docstrings and `; ...` line comments while preserving string literals."""
+    out: List[str] = []
+    i = 0
+    n = len(psc_text)
+    in_str = False
+    in_doc = False
+    while i < n:
+        ch = psc_text[i]
+        if in_doc:
+            if ch == "}":
+                in_doc = False
+            elif ch == "\n":
+                out.append("\n")
+            i += 1
+            continue
+        if in_str:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(psc_text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "{":
+            in_doc = True
+            i += 1
+            continue
+        if ch == ";":
+            while i < n and psc_text[i] != "\n":
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def extract_mapmarker_calls_from_psc(psc_text: str, script_name: str = MAP_MARKERS_SCRIPT) -> List[str]:
+    """Extract member function names called on `script_name` from Papyrus source (`CastAs` + `CallFunction` / typed calls)."""
+    cleaned = _strip_psc_comments_and_docs(psc_text)
+    esc = re.escape(script_name)
+    mm_vars: Set[str] = set()
+    for m in re.finditer(rf"\b([A-Za-z_]\w*)\s*=\s*[^\r\n;]*\.CastAs\(\s*\"{esc}\"\s*\)", cleaned, re.IGNORECASE):
+        mm_vars.add(m.group(1).casefold())
+    for m in re.finditer(rf"^\s*{esc}\s+(?:Property\s+)?([A-Za-z_]\w*)\b", cleaned, re.IGNORECASE | re.MULTILINE):
+        mm_vars.add(m.group(1).casefold())
+    for m in re.finditer(rf"\b([A-Za-z_]\w*)\s*=\s*[^\r\n;]*\bas\s+{esc}\b", cleaned, re.IGNORECASE):
+        mm_vars.add(m.group(1).casefold())
+
+    called: Dict[str, str] = {}
+    for var_low in sorted(mm_vars):
+        var_esc = re.escape(var_low)
+        for m in re.finditer(
+            rf"\b{var_esc}\s*\.\s*CallFunction(?:NoWait)?\(\s*\"([A-Za-z_]\w*)\"",
+            cleaned,
+            re.IGNORECASE,
+        ):
+            fn = m.group(1)
+            called.setdefault(fn.casefold(), fn)
+        for m in re.finditer(rf"\b{var_esc}\s*\.\s*([A-Za-z_]\w*)\s*\(", cleaned, re.IGNORECASE):
+            fn = m.group(1)
+            if fn.casefold() not in ("castas", "callfunction", "callfunctionnowait"):
+                called.setdefault(fn.casefold(), fn)
+
+    for m in re.finditer(
+        rf"\.CastAs\(\s*\"{esc}\"\s*\)\s*\.\s*CallFunction(?:NoWait)?\(\s*\"([A-Za-z_]\w*)\"",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        fn = m.group(1)
+        called.setdefault(fn.casefold(), fn)
+    for m in re.finditer(rf"\bas\s+{esc}\s*\)\s*\.\s*([A-Za-z_]\w*)\s*\(", cleaned, re.IGNORECASE):
+        fn = m.group(1)
+        if fn.casefold() not in ("castas", "callfunction", "callfunctionnowait"):
+            called.setdefault(fn.casefold(), fn)
+
+    return sorted(called.values())
+
+
+def verify_map_markers_bundle_compatibility(bundle_dir: str, repo_root: Optional[str] = None) -> List[str]:
+    """Verify staged `FO4SFMapMarkers.esm`, `FO4SFMapMarkers - Main.ba2`, `core.json`, and `FO4SF_NewGameQuest` calls."""
+    b_abs = os.path.abspath(bundle_dir)
+    issues: List[str] = []
+
+    mm_subdir = os.path.join(b_abs, MAP_MARKERS_DIRNAME)
+    if os.path.isdir(mm_subdir):
+        mm_root = mm_subdir
+        rel_prefix = MAP_MARKERS_DIRNAME + "/"
+        require_core_json = True
+    elif os.path.isfile(os.path.join(b_abs, MAP_MARKERS_PLUGIN)) or os.path.isfile(os.path.join(b_abs, MAP_MARKERS_ARCHIVE)):
+        mm_root = b_abs
+        rel_prefix = ""
+        require_core_json = False
+    else:
+        return [f"missing {MAP_MARKERS_DIRNAME}/{MAP_MARKERS_PLUGIN} and {MAP_MARKERS_DIRNAME}/{MAP_MARKERS_ARCHIVE}"]
+
+    mm_esm = os.path.join(mm_root, MAP_MARKERS_PLUGIN)
+    if not os.path.isfile(mm_esm):
+        issues.append(f"missing {rel_prefix}{MAP_MARKERS_PLUGIN}")
+    else:
+        try:
+            with RawEsmPlugin(mm_esm) as mm_plg:
+                masters_low = {m.casefold() for m in mm_plg.masters}
+                if "fo4terraincore.esm" not in masters_low:
+                    issues.append(f"{rel_prefix}{MAP_MARKERS_PLUGIN} does not master FO4TerrainCore.esm")
+        except (OSError, EsmError) as exc:
+            issues.append(f"invalid TES4 plugin {rel_prefix}{MAP_MARKERS_PLUGIN}: {exc}")
+
+    core_json_p = os.path.join(mm_root, "core.json")
+    bundle_core_p = os.path.join(b_abs, "FO4TerrainCore.esm")
+    if require_core_json or os.path.isfile(core_json_p):
+        if not os.path.isfile(core_json_p):
+            issues.append(f"missing {rel_prefix}core.json")
+        else:
+            try:
+                with open(core_json_p, encoding="utf-8") as fp:
+                    pin_doc = json.load(fp)
+                masters = pin_doc.get("masters") if isinstance(pin_doc, dict) else None
+                if not isinstance(masters, dict):
+                    raise ValueError("core.json missing 'masters' object")
+                pinned_core = next(
+                    (str(v).lower() for k, v in masters.items() if str(k).casefold() == "fo4terraincore.esm"),
+                    None,
+                )
+                if not pinned_core:
+                    raise ValueError("core.json lacks FO4TerrainCore.esm sha256")
+                if os.path.isfile(bundle_core_p):
+                    actual_core = _sha256_file(bundle_core_p).lower()
+                    if pinned_core != actual_core:
+                        issues.append(
+                            f"{rel_prefix}core.json pins FO4TerrainCore.esm {pinned_core[:12]}... "
+                            f"!= bundle FO4TerrainCore.esm {actual_core[:12]}..."
+                        )
+            except (OSError, ValueError) as exc:
+                issues.append(f"invalid {rel_prefix}core.json: {exc}")
+
+    mm_ba2 = os.path.join(mm_root, MAP_MARKERS_ARCHIVE)
+    packed_pex: Optional[bytes] = None
+    if not os.path.isfile(mm_ba2):
+        issues.append(f"missing {rel_prefix}{MAP_MARKERS_ARCHIVE}")
+    else:
+        try:
+            arc = Ba2(mm_ba2)
+            if arc.kind != "GNRL":
+                issues.append(f"{rel_prefix}{MAP_MARKERS_ARCHIVE} must be GNRL archive (found {arc.kind})")
+            else:
+                idx = arc.find(MAP_MARKERS_PEX_REL)
+                if idx is None:
+                    issues.append(f"{rel_prefix}{MAP_MARKERS_ARCHIVE} missing {MAP_MARKERS_PEX_REL}")
+                else:
+                    packed_pex = arc.read(idx)
+        except (OSError, Ba2Error) as exc:
+            issues.append(f"unreadable BA2 {rel_prefix}{MAP_MARKERS_ARCHIVE}: {exc}")
+
+    loose_candidates: List[Tuple[str, str]] = [
+        (f"{rel_prefix}Data/{MAP_MARKERS_PEX_REL}", os.path.join(mm_root, "Data", *MAP_MARKERS_PEX_REL.split("/")))
+    ]
+    if mm_root != b_abs:
+        loose_candidates.append((f"Data/{MAP_MARKERS_PEX_REL}", os.path.join(b_abs, "Data", *MAP_MARKERS_PEX_REL.split("/"))))
+
+    loose_pex_blobs: List[Tuple[str, bytes]] = []
+    for loose_rel, loose_path in loose_candidates:
+        if os.path.isfile(loose_path):
+            try:
+                loose_bytes = Path(loose_path).read_bytes()
+            except OSError as exc:
+                issues.append(f"unreadable loose {loose_rel}: {exc}")
+                continue
+            loose_pex_blobs.append((loose_rel, loose_bytes))
+            if packed_pex is not None and loose_bytes != packed_pex:
+                issues.append(
+                    f"loose {loose_rel} differs from {MAP_MARKERS_PEX_REL} inside {rel_prefix}{MAP_MARKERS_ARCHIVE}"
+                )
+
+    required_calls: List[str] = []
+    ng_pex_path = os.path.join(b_abs, "Data", "Scripts", f"{NEWGAME_QUEST_SCRIPT}.pex")
+    ng_is_real_pex = False
+    if os.path.isfile(ng_pex_path):
+        try:
+            ng_bytes = Path(ng_pex_path).read_bytes()
+            if len(ng_bytes) >= 4 and struct.unpack_from("<I", ng_bytes, 0)[0] == PEX_MAGIC:
+                ng_is_real_pex = True
+                required_calls = extract_mapmarker_calls_from_pex(ng_bytes, MAP_MARKERS_SCRIPT, NEWGAME_QUEST_SCRIPT)
+        except (OSError, ValueError) as exc:
+            issues.append(f"unreadable {NEWGAME_QUEST_SCRIPT}.pex: {exc}")
+
+    if not ng_is_real_pex:
+        repo_base = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
+        ng_psc_path = repo_base / "scripts" / "newgame" / f"{NEWGAME_QUEST_SCRIPT}.psc"
+        if not ng_psc_path.is_file():
+            issues.append(f"cannot extract {MAP_MARKERS_SCRIPT} calls: missing {ng_psc_path}")
+        else:
+            required_calls = extract_mapmarker_calls_from_psc(
+                ng_psc_path.read_text(encoding="utf-8", errors="replace"),
+                MAP_MARKERS_SCRIPT,
+            )
+
+    if not required_calls and not any("unreadable" in msg or "cannot extract" in msg for msg in issues):
+        issues.append(f"no {MAP_MARKERS_SCRIPT} member-function calls found in {NEWGAME_QUEST_SCRIPT}")
+
+    pex_sources_to_check: List[Tuple[str, bytes]] = []
+    if packed_pex is not None:
+        pex_sources_to_check.append((f"{rel_prefix}{MAP_MARKERS_ARCHIVE} ({MAP_MARKERS_PEX_REL})", packed_pex))
+    for loose_rel, loose_bytes in loose_pex_blobs:
+        if packed_pex is None or loose_bytes != packed_pex:
+            pex_sources_to_check.append((loose_rel, loose_bytes))
+
+    for src_label, pex_bytes in pex_sources_to_check:
+        try:
+            default_fns, all_fns = pex_defined_functions(pex_bytes, MAP_MARKERS_SCRIPT)
+        except ValueError as exc:
+            issues.append(f"{src_label} is not a valid compiled PEX ({exc})")
+            continue
+        for req_fn in required_calls:
+            req_low = req_fn.casefold()
+            if req_low not in default_fns:
+                if req_low in all_fns:
+                    issues.append(
+                        f"{src_label} defines {req_fn}() only in a non-default state, not callable on {MAP_MARKERS_SCRIPT}"
+                    )
+                else:
+                    issues.append(
+                        f"{src_label} lacks {MAP_MARKERS_SCRIPT}.{req_fn}() called by {NEWGAME_QUEST_SCRIPT}"
+                    )
+
+    return issues
+
+
+def _read_arsenal_weaps_from_esm(cv_path: str) -> Dict[int, str]:
+    """Read own WEAP `{local_form_id: editor_id}` entries from `FO4SFCoreValues.esm`."""
+    found: Dict[int, str] = {}
+    with RawEsmPlugin(cv_path) as plg:
+        self_idx = plg.self_index
+        for rec in plg.records("WEAP"):
+            if (rec.formid >> 24) == self_idx:
+                found[rec.formid & 0x00FFFFFF] = rec.edid
+    return found
+
+
+def _mission_has_s2_s6_markers(mission_path: str) -> bool:
+    """Return True if `FO4SFMission.esm` carries S2-S6 quests (`FO4SF_Vault111Roaches` / `FO4SF_LoadDoor`)."""
+    if not _is_tes4_plugin(mission_path):
+        return False
+    try:
+        with RawEsmPlugin(mission_path) as plg:
+            for rec in plg.records("QUST"):
+                if rec.edid.casefold() in ("fo4sf_vault111roaches", "fo4sf_loaddoor"):
+                    return True
+    except (OSError, EsmError):
+        return False
+    return False
+
+
+EXPECTED_ARSENAL_WEAPS: Dict[int, str] = {
+    fid: edid for fid, (rtype, edid) in CORE_VALUES_ARSENAL_RECORDS.items() if rtype == "WEAP"
+}
+
+
+def verify_core_values_arsenal_weaps(
+    bundle_dir: str,
+    *,
+    require_arsenal: Optional[bool] = None,
+) -> Dict[str, object]:
+    """Verify bundled/staged `FO4SFCoreValues.esm` holds `EXPECTED_ARSENAL_WEAPS` when required or detected."""
+    b_abs = os.path.abspath(bundle_dir)
+    cv_candidates = (
+        os.path.join(b_abs, "FO4SFCoreValues.esm"),
+        os.path.join(b_abs, "Data", "FO4SFCoreValues.esm"),
+    )
+    cv_path = next((p for p in cv_candidates if os.path.isfile(p)), cv_candidates[0])
+    mission_candidates = (
+        os.path.join(b_abs, "FO4SFMission.esm"),
+        os.path.join(b_abs, "Data", "FO4SFMission.esm"),
+    )
+    mission_path = next((p for p in mission_candidates if os.path.isfile(p)), mission_candidates[0])
+
+    bplan: Mapping[str, object] = {}
+    bplan_path = os.path.join(b_abs, "bundle_plan.json")
+    if os.path.isfile(bplan_path):
+        try:
+            with open(bplan_path, encoding="utf-8") as fp:
+                bplan = json.load(fp)
+        except (OSError, ValueError):
+            bplan = {}
+    bargs = bplan.get("args") if isinstance(bplan.get("args"), Mapping) else {}
+    plan_wants_arsenal = bargs.get("fo4_arsenal") == 1
+
+    found_weaps: Dict[int, str] = {}
+    read_err: Optional[str] = None
+    if os.path.isfile(cv_path):
+        try:
+            found_weaps = _read_arsenal_weaps_from_esm(cv_path)
+        except (OSError, EsmError) as exc:
+            read_err = str(exc)
+
+    if require_arsenal is False:
+        should_check = False
+    elif require_arsenal is True:
+        should_check = True
+    else:
+        should_check = _mission_has_s2_s6_markers(mission_path) or bool(found_weaps) or plan_wants_arsenal
+
+    if not should_check:
+        return {
+            "status": "SKIP",
+            "issues": [],
+            "found_count": len(found_weaps),
+            "expected_count": len(EXPECTED_ARSENAL_WEAPS),
+            "detail": "not required (non-arsenal / candidate-2g-fix7b bundle)",
+        }
+
+    issues: List[str] = []
+    if not os.path.isfile(cv_path):
+        issues.append("missing FO4SFCoreValues.esm")
+    elif read_err is not None:
+        issues.append(f"unreadable FO4SFCoreValues.esm ({read_err})")
+    else:
+        missing = [
+            f"0x{fid:06X} ({edid})"
+            for fid, edid in sorted(EXPECTED_ARSENAL_WEAPS.items())
+            if fid not in found_weaps
+        ]
+        mismatched = [
+            f"0x{fid:06X} expected {edid}, got {found_weaps[fid]!r}"
+            for fid, edid in sorted(EXPECTED_ARSENAL_WEAPS.items())
+            if fid in found_weaps and found_weaps[fid] != edid
+        ]
+        if missing:
+            issues.append(f"missing {len(missing)}/{len(EXPECTED_ARSENAL_WEAPS)} arsenal WEAP(s): {', '.join(missing[:6])}" + ("..." if len(missing) > 6 else ""))
+        if mismatched:
+            issues.append(f"EditorID mismatch on {len(mismatched)} arsenal WEAP(s): {', '.join(mismatched[:4])}")
+
+    if issues:
+        return {
+            "status": "FAIL",
+            "issues": issues,
+            "found_count": len(found_weaps),
+            "expected_count": len(EXPECTED_ARSENAL_WEAPS),
+            "detail": "; ".join(issues),
+        }
+    return {
+        "status": "PASS",
+        "issues": [],
+        "found_count": len(found_weaps),
+        "expected_count": len(EXPECTED_ARSENAL_WEAPS),
+        "detail": f"{len(EXPECTED_ARSENAL_WEAPS)}/{len(EXPECTED_ARSENAL_WEAPS)} arsenal WEAPs verified (0x000899..0x0008D6)",
+    }
+
+
+def _load_fo4_vault_pistol_config() -> Tuple[Tuple[str, int], Tuple[str, int]]:
+    """Read `(weapon_plugin, weapon_id), (ammo_plugin, ammo_id)` from `game_start_config.json`."""
+    cfg_path = Path(__file__).resolve().parent / "core" / "game_start_config.json"
+    if cfg_path.is_file():
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            vp = ((data.get("games") or {}).get("fo4") or {}).get("vault_pistol") or {}
+            wp = str(vp.get("weapon_plugin") or "FO4SFCoreValues.esm").strip()
+            wid = int(str(vp.get("weapon_id") or "0x000899").strip(), 16)
+            ap = str(vp.get("ammo_plugin") or "FO4SFCoreValues.esm").strip()
+            aid = int(str(vp.get("ammo_id") or "0x000898").strip(), 16)
+            return (wp, wid), (ap, aid)
+        except (OSError, ValueError, KeyError):
+            pass
+    return ("FO4SFCoreValues.esm", 0x000899), ("FO4SFCoreValues.esm", 0x000898)
+
+
+def _verify_newgame_vault_pistol_binding(bundle_dir: str) -> List[str]:
+    """Verify `FO4SFNewGame.esm` `VaultPistolBase`/`VaultAmmoBase` and `0x820`/`0x821` refs acceptably match."""
+    ng_path = os.path.join(bundle_dir, "FO4SFNewGame.esm")
+    if not _is_tes4_plugin(ng_path):
+        return []
+    try:
+        ng_rep = inspect_esm_binary(ng_path)
+    except (OSError, EsmError, ValueError) as exc:
+        return [f"unreadable FO4SFNewGame.esm ({exc})"]
+
+    has_ng_quest = 0x000800 in ng_rep.own_records or any(
+        vp.script_name.casefold() == "fo4sf_newgamequest" for vp in ng_rep.vmad_properties
+    )
+    if not has_ng_quest:
+        return []
+
+    cfg_weap, cfg_ammo = _load_fo4_vault_pistol_config()
+    fallback_weap = ("FO4SFNewGame.esm", 0x000822)
+    fallback_ammo = ("Starfield.esm", 0x2B5598)
+    legacy_weap = ("Starfield.esm", 0x24561C)
+
+    accepted_pairs = {
+        cfg_weap: cfg_ammo,
+        fallback_weap: fallback_ammo,
+        legacy_weap: fallback_ammo,
+    }
+
+    pistol_props = [
+        vp for vp in ng_rep.vmad_properties
+        if vp.script_name.casefold() == "fo4sf_newgamequest" and vp.prop_name == "VaultPistolBase"
+    ]
+    if len(pistol_props) != 1 or len(pistol_props[0].object_refs) != 1:
+        return ["FO4SFNewGame.esm missing FO4SF_NewGameQuest.VaultPistolBase VMAD binding"]
+
+    _alias, bound_wp_plg, bound_wp_id = pistol_props[0].object_refs[0]
+    bound_weap = (bound_wp_plg, bound_wp_id)
+    matched_key = next(
+        (k for k in accepted_pairs if k[0].casefold() == bound_weap[0].casefold() and k[1] == bound_weap[1]),
+        None,
+    )
+    if matched_key is None:
+        return [
+            f"FO4SFNewGame.esm VaultPistolBase bound to {bound_wp_plg}:0x{bound_wp_id:06X}, "
+            f"expected {cfg_weap[0]}:0x{cfg_weap[1]:06X} or {fallback_weap[0]}:0x{fallback_weap[1]:06X}"
+        ]
+
+    expected_ammo = accepted_pairs[matched_key]
+    issues: List[str] = []
+
+    if matched_key[0].casefold() == "fo4sfnewgame.esm":
+        own_rec = ng_rep.own_records.get(matched_key[1])
+        if own_rec is None or own_rec[0] != "WEAP":
+            issues.append(f"FO4SFNewGame.esm missing fallback WEAP 0x{matched_key[1]:06X}")
+    elif matched_key[0].casefold() == "fo4sfcorevalues.esm":
+        cv_path = os.path.join(bundle_dir, "FO4SFCoreValues.esm")
+        if _is_tes4_plugin(cv_path):
+            try:
+                cv_rep = inspect_esm_binary(cv_path)
+                if any(rt in ("WEAP", "AMMO") for rt, _ in cv_rep.own_records.values()):
+                    w_rec = cv_rep.own_records.get(matched_key[1])
+                    if w_rec is None or w_rec[0] != "WEAP":
+                        issues.append(f"FO4SFCoreValues.esm missing bound VaultPistolBase WEAP 0x{matched_key[1]:06X}")
+                    if expected_ammo[0].casefold() == "fo4sfcorevalues.esm":
+                        a_rec = cv_rep.own_records.get(expected_ammo[1])
+                        if a_rec is None or a_rec[0] != "AMMO":
+                            issues.append(f"FO4SFCoreValues.esm missing bound VaultAmmoBase AMMO 0x{expected_ammo[1]:06X}")
+            except (OSError, EsmError, ValueError):
+                pass
+
+    ammo_props = [
+        vp for vp in ng_rep.vmad_properties
+        if vp.script_name.casefold() == "fo4sf_newgamequest" and vp.prop_name == "VaultAmmoBase"
+    ]
+    bound_ammo: Optional[Tuple[str, int]] = None
+    if ammo_props:
+        if len(ammo_props[0].object_refs) != 1:
+            issues.append("FO4SFNewGame.esm FO4SF_NewGameQuest.VaultAmmoBase VMAD binding is empty")
+        else:
+            _a_alias, bound_am_plg, bound_am_id = ammo_props[0].object_refs[0]
+            bound_ammo = (bound_am_plg, bound_am_id)
+            if bound_am_plg.casefold() != expected_ammo[0].casefold() or bound_am_id != expected_ammo[1]:
+                issues.append(
+                    f"FO4SFNewGame.esm VaultAmmoBase bound to {bound_am_plg}:0x{bound_am_id:06X}, "
+                    f"expected {expected_ammo[0]}:0x{expected_ammo[1]:06X}"
+                )
+
+    for ctx, tgt_plg, tgt_id in ng_rep.cross_plugin_item_refs:
+        if ctx == "REFR:FO4SF_Vault111PistolRef.NAME":
+            if tgt_plg.casefold() != bound_weap[0].casefold() or tgt_id != bound_weap[1]:
+                issues.append(
+                    f"FO4SFNewGame.esm FO4SF_Vault111PistolRef base {tgt_plg}:0x{tgt_id:06X} "
+                    f"!= VaultPistolBase {bound_weap[0]}:0x{bound_weap[1]:06X}"
+                )
+        elif ctx == "REFR:FO4SF_Vault111AmmoRef.NAME":
+            want_am = bound_ammo or expected_ammo
+            if tgt_plg.casefold() != want_am[0].casefold() or tgt_id != want_am[1]:
+                issues.append(
+                    f"FO4SFNewGame.esm FO4SF_Vault111AmmoRef base {tgt_plg}:0x{tgt_id:06X} "
+                    f"!= VaultAmmoBase {want_am[0]}:0x{want_am[1]:06X}"
+                )
+
+    return issues
+
+
+def _read_fo4_pod_exit_mode_from_config() -> str:
+    cfg_path = Path(__file__).resolve().parent / "core" / "game_start_config.json"
+    if cfg_path.is_file():
+        try:
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            mode = ((data.get("games") or {}).get("fo4") or {}).get("pod_exit_mode")
+            if isinstance(mode, str) and mode.strip():
+                return mode.strip()
+        except (OSError, ValueError):
+            pass
+    return "cryopod_anim"
+
+
+def _read_newgame_pod_exit_mode(ng_path: str) -> Optional[str]:
+    """Read `PodExitMode` string property from `FO4SF_NewGameQuest` VMAD in `FO4SFNewGame.esm`, if present."""
+    if not _is_tes4_plugin(ng_path):
+        return None
+    try:
+        with open(ng_path, "rb") as fp:
+            raw = fp.read()
+    except OSError:
+        return None
+    if len(raw) < 24 or raw[:4] != b"TES4":
+        return None
+    hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+    pos = 24 + hdr_sz
+    while pos + 24 <= len(raw):
+        sig = raw[pos : pos + 4]
+        sz = struct.unpack_from("<I", raw, pos + 4)[0]
+        if sig == b"GRUP":
+            pos += 24
+            continue
+        rflags = struct.unpack_from("<I", raw, pos + 8)[0]
+        rbody_end = min(len(raw), pos + 24 + sz)
+        if sig == b"QUST":
+            payload = raw[pos + 24 : rbody_end]
+            if (rflags & 0x40000) and len(payload) >= 4:
+                try:
+                    payload = zlib.decompress(payload[4:])
+                except zlib.error:
+                    payload = b""
+            for ss, sp in _iter_esm_subrecords(payload):
+                if ss == b"VMAD" and b"PodExitMode" in sp:
+                    idx = sp.find(b"PodExitMode")
+                    window = sp[idx : idx + 80]
+                    if b"cryopod_anim" in window:
+                        return "cryopod_anim"
+                    if b"safe_spawn" in window:
+                        return "safe_spawn"
+        pos = rbody_end
+    return None
+
+
+def _bundle_data_asset_path(bundle_dir: str, rel_path: str) -> Optional[str]:
+    norm = rel_path.replace("\\", "/").lstrip("/")
+    if not norm:
+        return None
+    cands = [os.path.join(bundle_dir, "Data", *norm.split("/"))]
+    if not norm.lower().startswith("meshes/"):
+        cands.insert(0, os.path.join(bundle_dir, "Data", "meshes", *norm.split("/")))
+    for p in cands:
+        if os.path.exists(p):
+            return p
+        # Case-insensitive fallback scan inside Data tree on Windows/POSIX
+        parent = os.path.dirname(p)
+        base = os.path.basename(p).casefold()
+        if os.path.isdir(parent):
+            for ent in os.listdir(parent):
+                if ent.casefold() == base:
+                    return os.path.join(parent, ent)
+    return None
+
+
+def verify_cryopod_anim_bundle(
+    bundle_dir: str,
+    active_plugins: Optional[Set[str]] = None,
+    *,
+    pod_exit_mode: Optional[str] = None,
+) -> Dict[str, object]:
+    """Verify `FO4SFVaultPod.esm`, ACTI 0x800, persistent REFR 0x801, disabled 0x001617, and model/rig/clips."""
+    b_abs = os.path.abspath(bundle_dir)
+    ng_path = os.path.join(b_abs, "FO4SFNewGame.esm")
+    mode = pod_exit_mode or _read_newgame_pod_exit_mode(ng_path) or _read_fo4_pod_exit_mode_from_config()
+    if mode != "cryopod_anim":
+        return {
+            "status": "SKIP",
+            "mode": mode,
+            "issues": [],
+            "detail": f"pod_exit_mode={mode!r} (not cryopod_anim)",
+        }
+
+    issues: List[str] = []
+    pod_esm = os.path.join(b_abs, "FO4SFVaultPod.esm")
+    if not _is_tes4_plugin(pod_esm):
+        issues.append("missing or invalid FO4SFVaultPod.esm")
+        return {"status": "FAIL", "mode": mode, "issues": issues, "detail": "; ".join(issues)}
+
+    if active_plugins and "fo4sfvaultpod.esm" not in active_plugins:
+        issues.append("FO4SFVaultPod.esm missing from bundle_plan.json plugins list")
+
+    with open(pod_esm, "rb") as fp:
+        raw = fp.read()
+    hdr_sz = struct.unpack_from("<I", raw, 4)[0]
+    masters: List[str] = []
+    for ss, sp in _iter_esm_subrecords(raw[24 : 24 + hdr_sz]):
+        if ss == b"MAST":
+            masters.append(sp.rstrip(b"\x00").decode("utf-8", errors="replace"))
+    master_low = [m.casefold() for m in masters]
+    if "starfield.esm" not in master_low or "fo4port.esm" not in master_low:
+        issues.append(f"FO4SFVaultPod.esm masters {masters} must include Starfield.esm and FO4Port.esm")
+    self_mod_idx = len(masters)
+
+    actis: Dict[int, dict] = {}
+    refrs: Dict[int, dict] = {}
+
+    def _walk(start: int, end: int) -> None:
+        cur = start
+        while cur + 24 <= end:
+            sig = raw[cur : cur + 4]
+            sz = struct.unpack_from("<I", raw, cur + 4)[0]
+            if sig == b"GRUP":
+                if sz < 24 or cur + sz > end:
+                    break
+                _walk(cur + 24, cur + sz)
+                cur += sz
+                continue
+            rflags = struct.unpack_from("<I", raw, cur + 8)[0]
+            rfid = struct.unpack_from("<I", raw, cur + 12)[0]
+            rbody_end = min(end, cur + 24 + sz)
+            if sig in (b"ACTI", b"REFR"):
+                payload = raw[cur + 24 : rbody_end]
+                if (rflags & 0x40000) and len(payload) >= 4:
+                    try:
+                        payload = zlib.decompress(payload[4:])
+                    except zlib.error:
+                        payload = b""
+                if sig == b"ACTI":
+                    edid, modl, obnd, anam, bnam, cnam = "", "", b"", "", "", ""
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"EDID":
+                            edid = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"MODL":
+                            modl = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"OBND":
+                            obnd = sp
+                        elif ss == b"ANAM":
+                            anam = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"BNAM":
+                            bnam = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                        elif ss == b"CNAM":
+                            cnam = sp.rstrip(b"\x00").decode("utf-8", errors="replace")
+                    actis[rfid] = {"edid": edid, "modl": modl, "obnd": obnd, "anam": anam, "bnam": bnam, "cnam": cnam}
+                else:
+                    base_fid = 0
+                    for ss, sp in _iter_esm_subrecords(payload):
+                        if ss == b"NAME" and len(sp) == 4:
+                            base_fid = struct.unpack("<I", sp)[0]
+                    refrs[rfid] = {"flags": rflags, "base_fid": base_fid}
+            cur = rbody_end
+
+    _walk(24 + hdr_sz, len(raw))
+
+    acti_key = (self_mod_idx << 24) | 0x000800
+    acti = actis.get(acti_key)
+    if acti is None:
+        issues.append("FO4SFVaultPod.esm missing ACTI 0x800")
+    else:
+        if not acti["modl"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing MODL")
+        else:
+            m_path = _bundle_data_asset_path(b_abs, acti["modl"])
+            if not m_path or not os.path.isfile(m_path) or os.path.getsize(m_path) == 0:
+                issues.append(f"bundle missing ACTI 0x800 model: Data/meshes/{acti['modl']}")
+        if not acti["anam"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing graph ANAM")
+        if not acti["bnam"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing rig BNAM")
+        else:
+            r_path = _bundle_data_asset_path(b_abs, acti["bnam"])
+            if not r_path or not os.path.isfile(r_path) or os.path.getsize(r_path) == 0:
+                issues.append(f"bundle missing ACTI 0x800 rig: Data/meshes/{acti['bnam']}")
+        if not acti["cnam"]:
+            issues.append("FO4SFVaultPod.esm ACTI 0x800 missing clips CNAM")
+        else:
+            c_dir = _bundle_data_asset_path(b_abs, acti["cnam"])
+            if not c_dir or not os.path.isdir(c_dir):
+                issues.append(f"bundle missing ACTI 0x800 clips folder: Data/meshes/{acti['cnam']}")
+            else:
+                files_low = {fn.casefold() for fn in os.listdir(c_dir)}
+                for req_clip in ("statea_play.af", "statea_play.afx", "stateb_play.af", "stateb_play.afx",
+                                 "statea_idle.af", "statea_idle.afx", "stateb_idle.af", "stateb_idle.afx"):
+                    if req_clip not in files_low:
+                        issues.append(f"bundle missing clip Data/meshes/{acti['cnam']}/{req_clip}")
+
+    ref_key = (self_mod_idx << 24) | 0x000801
+    ref801 = refrs.get(ref_key)
+    if ref801 is None:
+        issues.append("FO4SFVaultPod.esm missing persistent REFR 0x801")
+    else:
+        if (ref801["flags"] & 0x400) == 0:
+            issues.append("FO4SFVaultPod.esm REFR 0x801 lacks Persistent flag (0x400)")
+        if ref801["base_fid"] != acti_key:
+            issues.append(f"FO4SFVaultPod.esm REFR 0x801 NAME=0x{ref801['base_fid']:08X} != 0x{acti_key:08X}")
+
+    port_idx = master_low.index("fo4port.esm") if "fo4port.esm" in master_low else 1
+    dis_key = (port_idx << 24) | 0x001617
+    ref1617 = refrs.get(dis_key)
+    if ref1617 is None:
+        issues.append("FO4SFVaultPod.esm missing override of FO4Port REFR 0x001617")
+    elif (ref1617["flags"] & 0x800) == 0:
+        issues.append("FO4SFVaultPod.esm override of REFR 0x001617 lacks Initially Disabled flag (0x800)")
+
+    if issues:
+        return {"status": "FAIL", "mode": mode, "issues": issues, "detail": "; ".join(issues)}
+    return {
+        "status": "PASS",
+        "mode": mode,
+        "issues": [],
+        "detail": "FO4SFVaultPod.esm ACTI 0x800, persistent REFR 0x801, disabled 0x001617, model/rig/clips verified",
+    }
+
+
+def verify_quest_translate_archive_readiness(
+    bundle_dir: str,
+    bplan: Optional[Mapping[str, object]] = None,
+    *,
+    require_quest_translate: Optional[bool] = None,
+) -> Dict[str, object]:
+    """Verify quest-mode `Data/Interface/Translate_en.txt` is staged for `Main.ba2` packing (never loose-only)."""
+    b_abs = os.path.abspath(bundle_dir)
+    plan = bplan if isinstance(bplan, Mapping) else {}
+    components = plan.get("components") if isinstance(plan.get("components"), Mapping) else {}
+    sfse_sidecar = plan.get("sfse_sidecar") if isinstance(plan.get("sfse_sidecar"), Mapping) else {}
+    hl_obj = plan.get("hud_label") if isinstance(plan.get("hud_label"), Mapping) else None
+
+    mode = str((hl_obj or {}).get("mode") or "").strip().lower()
+    label = str((hl_obj or {}).get("label") or "").strip()
+    if not mode:
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "core", "game_start_config.json"
+        )
+        if os.path.isfile(cfg_path):
+            try:
+                cfg_doc = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+                gid = str(cfg_doc.get("default_game") or "fo4")
+                g_hl = ((cfg_doc.get("games") or {}).get(gid) or {}).get("hud_label") or {}
+                mode = str(g_hl.get("mode") or "quest").strip().lower()
+                if not label:
+                    label = str(g_hl.get("label") or "QUEST").strip()
+            except (OSError, ValueError):
+                mode = "quest"
+        else:
+            mode = "quest"
+    if mode == "mission":
+        mode = "vanilla"
+    if not label:
+        label = "QUEST"
+
+    translate_disk = os.path.join(b_abs, "Data", "Interface", "Translate_en.txt")
+    sidecar_disk = os.path.join(b_abs, "sfse_sidecar", "Interface", "Translate_en.txt")
+    has_pipboy = (
+        "pipboy" in components
+        or os.path.isfile(os.path.join(b_abs, "sfse_sidecar", "SFSE", "Plugins", "FO4SFPipboyMenu.dll"))
+        or "SFSE/Plugins/FO4SFPipboyMenu.dll" in sfse_sidecar
+        or os.path.isdir(os.path.join(b_abs, "Data", "Interface"))
+    )
+    has_qt_signal = (
+        isinstance(plan.get("quest_translate"), Mapping)
+        or "Interface/Translate_en.txt" in sfse_sidecar
+        or os.path.isfile(sidecar_disk)
+        or os.path.isfile(translate_disk)
+    )
+    plan_args = plan.get("args") if isinstance(plan.get("args"), Mapping) else {}
+    has_starfield_build_arg = bool(plan_args.get("starfield_dir"))
+    should_check = mode == "quest" and (
+        bool(require_quest_translate and (hl_obj is not None or has_pipboy or has_qt_signal))
+        or has_qt_signal
+        or (has_pipboy and has_starfield_build_arg)
+    )
+    if not should_check:
+        detail = f"mode={mode} (not required)" if mode != "quest" else "not staged (no pipboy/hud_label)"
+        return {"status": "PASS", "detail": detail, "issues": []}
+
+    issues: List[str] = []
+    if os.path.isfile(sidecar_disk) or "Interface/Translate_en.txt" in sfse_sidecar:
+        issues.append(
+            "Interface/Translate_en.txt is staged in sfse_sidecar/ (loose) instead of Data/Interface/Translate_en.txt for Main.ba2 packing"
+        )
+    if not os.path.isfile(translate_disk):
+        issues.append(
+            "hud_label mode=quest requires Data/Interface/Translate_en.txt staged in Data/ so exp_install --pack includes it in Main.ba2"
+        )
+        return {"status": "FAIL", "detail": "missing Data/Interface/Translate_en.txt", "issues": issues}
+
+    raw = Path(translate_disk).read_bytes()
+    if not raw:
+        issues.append("Data/Interface/Translate_en.txt is empty")
+        return {"status": "FAIL", "detail": "empty Data/Interface/Translate_en.txt", "issues": issues}
+
+    if components:
+        all_outputs_low: Dict[str, str] = {}
+        for cinfo in components.values():
+            if isinstance(cinfo, Mapping):
+                for rel, h in (cinfo.get("outputs") or {}).items():
+                    all_outputs_low[str(rel).replace("\\", "/").casefold()] = str(h).strip().lower()
+        want_key = "data/interface/translate_en.txt"
+        if want_key not in all_outputs_low:
+            issues.append(
+                "Data/Interface/Translate_en.txt is missing from bundle_plan.json component outputs (archive inputs)"
+            )
+        else:
+            got_sha = hashlib.sha256(raw).hexdigest().lower()
+            if got_sha != all_outputs_low[want_key]:
+                issues.append(
+                    f"Data/Interface/Translate_en.txt sha256 {got_sha} != bundle_plan.json {all_outputs_low[want_key]}"
+                )
+
+    try:
+        if raw.startswith(b"\xff\xfe"):
+            decoded = raw[2:].decode("utf-16-le")
+        elif raw.startswith(b"\xfe\xff"):
+            decoded = raw[2:].decode("utf-16-be")
+        elif raw.startswith(b"\xef\xbb\xbf"):
+            decoded = raw[3:].decode("utf-8")
+        else:
+            decoded = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        issues.append(f"Data/Interface/Translate_en.txt unreadable encoding: {exc}")
+        return {"status": "FAIL", "detail": "invalid encoding", "issues": issues}
+
+    kv: Dict[str, str] = {}
+    for ln in decoded.splitlines():
+        if "\t" in ln:
+            k, v = ln.split("\t", 1)
+            kv[k] = v
+
+    upper = label.upper() if label.islower() or label.isupper() else label
+    title = " ".join(w.capitalize() if w.isupper() else w for w in label.split())
+    plural_upper = (
+        upper + ("ES" if upper.isupper() else "es")
+        if upper.endswith(("S", "X", "Z", "CH", "SH"))
+        else (upper[:-1] + ("IES" if upper.isupper() else "ies") if upper.endswith("Y") and len(upper) > 1 and upper[-2] not in "AEIOUaeiou" else upper + ("S" if upper.isupper() else "s"))
+    )
+    required_pairs = {
+        "$MISSION": upper,
+        "$MISSIONS": plural_upper,
+        "$MISSION STATUS": f"{upper} STATUS",
+        "$MissionNew": f"NEW {upper}",
+        "$MissionMenu": f"{upper} LOG",
+        "$MissionAdded": f"ADDED TO {upper} LOG",
+        "$Quest": title,
+        "$QUEST": upper,
+        "$QUESTS": plural_upper,
+    }
+    bad_keys = [
+        f"{k}={kv.get(k)!r} (want {v!r})"
+        for k, v in required_pairs.items()
+        if kv.get(k) != v
+    ]
+    if bad_keys:
+        issues.append("Data/Interface/Translate_en.txt missing/wrong quest keys: " + ", ".join(bad_keys[:5]))
+
+    status = "PASS" if not issues else "FAIL"
+    detail = (
+        f"Data/Interface/Translate_en.txt staged for Main.ba2 (mode={mode}, label={label})"
+        if not issues
+        else "; ".join(issues)
+    )
+    return {"status": status, "detail": detail, "issues": issues}
+
+
+def verify_bundle_beginning_readiness(
+    bundle_dir: str,
+    *,
+    require_map_markers: bool = True,
+    require_arsenal: Optional[bool] = None,
+    pod_exit_mode: Optional[str] = None,
+    require_quest_translate: Optional[bool] = None,
+) -> Dict[str, object]:
     """Check offline that `bundle_dir` contains every plugin, script, mesh, and voice asset for `B1`..`B8`."""
     b_abs = os.path.abspath(bundle_dir)
     problems: List[str] = []
@@ -261,28 +1700,100 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
             p_full = os.path.join(b_abs, p)
             if not _is_tes4_plugin(p_full):
                 step_issues.append(f"missing or invalid TES4 plugin: {p}")
-            elif active_plugins and p.casefold() not in active_plugins:
-                step_issues.append(f"plugin {p} missing from bundle_plan.json plugins list")
+            else:
+                if active_plugins and p.casefold() not in active_plugins:
+                    step_issues.append(f"plugin {p} missing from bundle_plan.json plugins list")
+                if p.casefold() not in BASE_SKIP_ACTI_PLUGINS:
+                    bad_actis, _ = find_bad_placed_activators(p_full)
+                    step_issues.extend(bad_actis)
 
         for sc in req_scripts:
             sc_full = os.path.join(b_abs, "Data", "Scripts", sc)
             if not os.path.isfile(sc_full) or os.path.getsize(sc_full) < 16:
                 step_issues.append(f"missing compiled Papyrus script: Data/Scripts/{sc}")
 
-        if spec.step_id == "B2_gear_door" and isinstance(components, Mapping) and components:
-            cog = components.get("cog_door")
-            if not isinstance(cog, Mapping) or len(cog.get("outputs") or {}) < 2:
-                step_issues.append("bundle_plan.json missing cog_door mesh/material outputs")
+        if spec.step_id == "B2_gear_door":
+            if isinstance(components, Mapping) and components:
+                cog = components.get("cog_door")
+                if not isinstance(cog, Mapping) or len(cog.get("outputs") or {}) < 2:
+                    step_issues.append("bundle_plan.json missing cog_door mesh/material outputs")
+            step_issues.extend(_verify_newgame_vault_pistol_binding(b_abs))
 
-        if spec.step_id == "B3_exit_lift" and isinstance(components, Mapping) and components:
-            lift = components.get("exit_lift")
-            if not isinstance(lift, Mapping) or len(lift.get("outputs") or {}) < 2:
-                step_issues.append("bundle_plan.json missing exit_lift mesh/material outputs")
+        if spec.step_id == "B3_exit_lift":
+            if isinstance(components, Mapping) and components:
+                lift = components.get("exit_lift")
+                if not isinstance(lift, Mapping) or len(lift.get("outputs") or {}) < 2:
+                    step_issues.append("bundle_plan.json missing exit_lift mesh/material outputs")
+            mars_esm = os.path.join(b_abs, "FO4TerrainCore_Mars.esm")
+            if _is_tes4_plugin(mars_esm):
+                from pathlib import Path as _P
+                import sys as _sys
+                _core_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts", "core")
+                if _core_dir not in _sys.path:
+                    _sys.path.insert(0, _core_dir)
+                import make_core_bundle as _mcb
+                g_val = _mcb.read_planet_gravity_g(_P(mars_esm))
+                if g_val is not None and abs(g_val - _mcb.EARTH_GRAVITY_G) > 0.02:
+                    step_issues.append(f"FO4TerrainCore_Mars.esm PNDT gravity is {g_val:.4f}g, expected {_mcb.EARTH_GRAVITY_G:.2f}g (Earth)")
+            if require_map_markers:
+                step_issues.extend(verify_map_markers_bundle_compatibility(b_abs))
+
+        if spec.step_id == "B1_vault_start":
+            pb_ini = os.path.join(b_abs, "SFSE", "Plugins", "FO4SFPipboyMenu.ini")
+            if os.path.isfile(pb_ini):
+                ini_txt = open(pb_ini, encoding="utf-8", errors="ignore").read().lower()
+                if "requirepickup=" in ini_txt and "requirepickup=1" not in ini_txt:
+                    step_issues.append("FO4SFPipboyMenu.ini must set RequirePickup=1")
 
         if spec.step_id == "B5_codsworth_sanctuary":
-            nif_full = os.path.join(b_abs, "Data", *CODSWORTH_NIF_REL.split("/"))
-            if not os.path.isfile(nif_full):
-                step_issues.append(f"missing Codsworth NIF: Data/{CODSWORTH_NIF_REL}")
+            mission_esm_full = os.path.join(b_abs, "FO4SFMission.esm")
+            mission_is_tes4 = _is_tes4_plugin(mission_esm_full)
+            arma_model_paths: Set[str] = set()
+            if mission_is_tes4:
+                try:
+                    with RawEsmPlugin(mission_esm_full) as mplg:
+                        for rec in mplg.records("ARMA"):
+                            for tag in (b"MOD2", b"MOD3", b"MODL"):
+                                raw_m = rec.get(tag)
+                                if not raw_m:
+                                    continue
+                                norm_m = (
+                                    raw_m.split(b"\x00", 1)[0]
+                                    .decode("latin-1", errors="replace")
+                                    .replace("\\", "/")
+                                    .strip()
+                                    .casefold()
+                                )
+                                if norm_m:
+                                    arma_model_paths.add(norm_m)
+                                    if norm_m.startswith("meshes/"):
+                                        arma_model_paths.add(norm_m[len("meshes/"):])
+                except (OSError, EsmError) as exc:
+                    step_issues.append(f"unreadable FO4SFMission.esm ARMA records ({exc})")
+
+            asset_dirs = bplan.get("asset_dirs") if isinstance(bplan.get("asset_dirs"), Mapping) else {}
+            expect_handy_nif = bool(asset_dirs.get("codsworth_handy")) or (
+                os.path.isfile(os.path.join(b_abs, "Data", *CODSWORTH_HANDY_NIF_REL.split("/")))
+                and (
+                    not mission_is_tes4
+                    or CODSWORTH_HANDY_NIF_REL[len("meshes/"):].casefold() in arma_model_paths
+                    or CODSWORTH_HANDY_NIF_REL.casefold() in arma_model_paths
+                )
+            )
+            required_actor_nifs = tuple(
+                ("Codsworth Handy NIF", CODSWORTH_HANDY_NIF_REL)
+                if nif_rel == CODSWORTH_NIF_REL and expect_handy_nif
+                else (label, nif_rel)
+                for label, nif_rel in B5_REQUIRED_ACTOR_NIFS
+            )
+            for label, nif_rel in required_actor_nifs:
+                nif_full = os.path.join(b_abs, "Data", *nif_rel.split("/"))
+                if not os.path.isfile(nif_full):
+                    step_issues.append(f"missing {label}: Data/{nif_rel}")
+                mod_rel = nif_rel[len("meshes/"):] if nif_rel.startswith("meshes/") else nif_rel
+                if mission_is_tes4 and mod_rel.casefold() not in arma_model_paths and nif_rel.casefold() not in arma_model_paths:
+                    step_issues.append(f"FO4SFMission.esm does not reference {label} ({mod_rel})")
+
             v_dir = os.path.join(b_abs, "Data", *CODSWORTH_VOICE_DIR_REL.split("/"))
             wems = [f for f in os.listdir(v_dir) if f.lower().endswith(".wem")] if os.path.isdir(v_dir) else []
             if len(wems) < MIN_CODSWORTH_WEMS:
@@ -298,9 +1809,30 @@ def verify_bundle_beginning_readiness(bundle_dir: str) -> Dict[str, object]:
             "issues": step_issues,
         }
 
+    arsenal_res = verify_core_values_arsenal_weaps(b_abs, require_arsenal=require_arsenal)
+    if arsenal_res["status"] == "FAIL":
+        problems.extend(f"arsenal_weap: {msg}" for msg in arsenal_res["issues"])
+
+    pod_anim_res = verify_cryopod_anim_bundle(b_abs, active_plugins, pod_exit_mode=pod_exit_mode)
+    if pod_anim_res["status"] == "FAIL":
+        problems.extend(f"pod_anim: {msg}" for msg in pod_anim_res["issues"])
+        b1_entry = step_results.get("B1_pod")
+        if isinstance(b1_entry, dict):
+            b1_entry["issues"].extend(pod_anim_res["issues"])
+            b1_entry["status"] = "FAIL"
+
+    qt_res = verify_quest_translate_archive_readiness(
+        b_abs, bplan=bplan, require_quest_translate=require_quest_translate
+    )
+    if qt_res["status"] == "FAIL":
+        problems.extend(f"quest_translate: {msg}" for msg in qt_res["issues"])
+
     return {
         "ok": len(problems) == 0,
         "steps": step_results,
+        "arsenal_weaps": arsenal_res,
+        "pod_anim": pod_anim_res,
+        "quest_translate": qt_res,
         "problems": problems,
     }
 
