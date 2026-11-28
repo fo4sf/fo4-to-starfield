@@ -1396,7 +1396,7 @@ decided the import path); keeping the order as a parameter (two orders in the co
   records; **T** a vanilla baseline New Game for comparison (`docs/testing/baseline.md`); **V** keep going on Claude's
   picks and redo what the owner changes; orbit **A**, the final planet in Earth's orbit. **K** (Claude's pick under V,
   changeable): the probe planet is a Jemison clone without alien life. The start, 31 Oct: **a** the start is chosen in
-  the launcher; **f** two separate test starts, D skipping character creation only (today's quick start) and E outside
+  the launcher; **f** two separate test starts, D skipping character creation only (legacy Vault 111 pod "Quick start" button, **terminology renamed** per the 2026-11-24 two-starts-per-game decision `#32` `7146850600` to e.g. `"Use preset look"` so it is not confused with a game's Quick start) and E outside
   at the Vault 111 elevator; **g** the pre-war Vault 111 (into the cryo pod, out post-war, the vault door and the
   elevator) comes after the start picker and the launcher profile work, and is not built before the owner has seen
   its design. The owner would like the GAMMA start picked in the new-game options, if the game allows it (unchecked).
@@ -1457,4 +1457,57 @@ files. A new path needs no assumption about archive order, replaces nothing, and
 where a player can stand, so the quest gives the door a trigger.
 Alternatives: prove a later plugin's archive wins for the same path (unread, a session of its own, leaves a shadowed file behind); extend the ACTI probe to
 DOORs (its check asserts exactly an ACTI and a quest); replace the archived files (forbidden by the installer).
+
+## 2026-11-24: all Starfield UI is a functional stand-in until converted to Fallout style (owner, #32)
+
+- **Decision:** Owner direction ([#32 comment 7143411698](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7143411698)): every UI screen (workshop/outpost builder, main menu, HUD, and other Starfield menus) will eventually be changed into Fallout style, widening the 2026-10-19 HUD decision (`NG-13`) to all Starfield screens.
+- **Rules for cards, reviews, and builds:**
+  - Label Starfield screens as **stand-in screens** (`stand-in`), and judge them strictly for **function** (opens, lists expected items, no blank/wrong text, never locks up).
+  - Do not spend effort polishing Starfield screen visuals beyond a working stand-in; functional failures (such as an empty build menu) still block.
+- **Why / Alternatives:** Avoids wasted look-polish on Starfield UI scheduled for replacement by Fallout UI.
+
+## 2026-11-24: FO3 and NV exteriors built first while interiors wait; inter-world travel stays inside D1-D6 (owner, #32)
+
+- **Decision:** Owner direction ([#32 comment 7145192137](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7145192137)): build Fallout 3 (Capital Wasteland) and New Vegas (Mojave) exterior terrain/blocks first while their interiors wait; stage Fallout 76 and other regions later; design inter-world travel inside the 2026-11-07 rules `D1`–`D6` (`docs/combined-core-gateways.md`) on one Earth with one landing per region (sealed worlds like Anchorage/Zeta separate), blocked star map / no usable ship (`MG-15`), and Fallout-style UI later.
+- **Pending decisions under travel/world layout:** Moving Commonwealth from `(0.3, -1.2)` to real Boston vs keeping relative test coordinates (`#32` question 9), gateway ownership rules, discovery store beyond 336 markers (`question 4`), and `docs/world/loading-screens-options.md` Option A vs B and tip text (`question 10`).
+
+## 2026-11-24: Fallout 3 vault exit runs its multi-stage CG01-CG04 start chain rather than modelling on Vault 111 (owner, #32)
+
+- **Decision:** Owner note & direction ([#32 comment 7146745853](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146745853)): Fallout 3 starts across four Vault 101 quests (`CG01` birth, `CG02` 10th birthday, `CG03` G.O.A.T., `CG04` escape, ending with a final rebuild prompt at the exterior door). Do not model FO3's start on our Vault 111 lift exit; the start-world hook (`MG-28`) must support multi-stage start chains.
+- **Pending (until FO3 interiors begin):** Owner choice on how a FO3 normal run plays (full childhood chain, starting at escape, or starting at the door reconciled with the 19 Nov `"all choices before any load"` rule).
+
+## 2026-11-24: two starts for every game — normal start and quick start (owner, #32)
+
+- **Decision:** Owner decision ([#32 comment 7146850600](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7146850600)): every game is built with **two starts, the normal one and a quick start**:
+  - **Fallout 4:** Normal = full opening (pre-war Sanctuary, Vault 111, cryo, waking); Quick = right outside the cryo pod after waking.
+  - **Fallout 3:** Normal = full Vault 101 chain (`CG01`–`CG04`: birth, age 10, G.O.A.T., escape); Quick = right before the exterior door at the end of the escape.
+  - **New Vegas:** Normal = Doc Mitchell's start + Goodsprings tutorial; Quick = right before leaving Doc Mitchell's house.
+  - Fallout 76 and isometric titles follow the same rule with quick spots chosen when built; VAULT 101 exit tunnel and Doc Mitchell's house become the first FO3/FNV interiors built once exteriors pass in game.
+- **Terminology & registry consequences:** `src/fo4sf/core/start_places.json` holds both a `normal` and `quick` row per story; rename the legacy pod `"Quick start"` look-preset button (e.g. `"Use preset look"`, see `2026-11-01` item `f` above) so players do not confuse it with the new Quick start.
+- **Supersedes / Extends:** Partially supersedes `MG-18` (only `"Vault 111 only"`) and `CC-51` (only `"Vault 111 stays the story start"`; faction starts still stand), extends `MG-28`, and scopes `NG-A10`/`NG-A11`. Which game a multi-game playthrough opens in remains **pending** alongside story routes (`#32 comment 7148051464`).
+
+## 2026-11-25: jobs and bounties live in a Pip-Boy tab (owner, #32)
+
+- **Decision:** Owner words ([#32 comment 7148165105](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7148165105)): **"Jobs should be a pipboy tab."**
+  - Offered/active jobs, progress, turn-in pointers, and bounties move from a separate job board / deferred F10 faction device into the Pip-Boy (`DATA > JOBS` confirmed under [#32 comment 7155932648](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7155932648)).
+  - In-world quartermasters/givers stay as flavour and turn-in points, not a prerequisite to view or accept jobs.
+- **Pending:** Jobs economy details and full-experience/routes rules (`#32 comment 7148051464`).
+
+## 2026-11-25: Pip-Boy replaces most Starfield menus; faction controls get their own UI; special Pip-Boys only where lore allows (owner, #32)
+
+- **Decision:** Owner direction ([#32 comment 7148866314](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7148866314)):
+  - The Pip-Boy replaces most Starfield menus as in Fallout (Inventory, Status/Skills, Missions/Quests, Map, Jobs, Workshops, Radio, Notes/Standing); jobs and similar items go into it (`DATA > JOBS`).
+  - Complex menus such as faction controls get their own Fallout-style UI (still on hold; accepted orders surface in Pip-Boy Jobs).
+  - Non-Pip-Boy gameplay menus (containers, barter, dialogue mechanics, lockpicking, terminals, books, sleep/wait, favorites, crafting benches, workshop build mode, HUD/VATS/Power Armor HUD, chargen) become Fallout-style screens; powers, ship screens, star map, almanac, scanner, and research stay removed.
+  - **Special Pip-Boys in Warfare:** allowed **only where lore allows** (Vault-born standard Pip-Boys, Vault 95 Gunner Pip-Boy, canon Fallout 76/4 paints as cosmetics; salvaged standard Pip-Boys otherwise). Confirmed in [#32 comment 7155932648](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7155932648).
+
+## 2026-11-25: workshop overhaul — Fallout 4 settlement system as base, keeping Starfield builder strengths (owner, #32)
+
+- **Decision:** Owner direction (25 Nov, [#32 comment 7152496074](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7152496074)): **"let's also add overhauling and improving the workshop with how it works and builds, Starfield was worse than fallout fours but certain elements to it we can use"**.
+  - Fallout 4's settlement system (ratings, settlers, scrap, build menu tree, power, supply lines, attacks) is the base; Starfield's builder stays underneath as the engine keeping the parts that work better; Starfield's `WorkshopMenu` stays a **functional stand-in screen** until converted to Fallout style (`7143411698`).
+  - Owner play & follow-up answers ([#32 comment 7155932648](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-7155932648)): rated stand-in builder `3.5-4` vs FO4 and top-down camera `5`; approved Workshop Q1/Q2 & power wires, Warfare settlement tracking page, New Vegas-style per-faction fame/infamy reputation, story routes Q2/Q3, Warfare time & Brotherhood chapter structure, regional starting states, and keeping eligible DLC/FO76 story-off pieces.
+- **Pending owner decisions (kept design-only with zero gameplay/menu lock-in):**
+  - Settlement attacks and building beyond the Commonwealth (owner selected `"something else"` with no note; awaiting owner clarification).
+  - Story routes Q1 moving-on pacing detail, full-experience build/reward, story-off exact quest scope, and jobs economy (`7148051464`, `7155932648`).
+  - Which Starfield builder parts we keep (`Q1`), FO4 systems build order, area power vs wires detail, C.A.M.P. per mode (`Q6`), 13 vs 14 skills / perk cadence, *The Molecular Level* look (`7152496074`), and `docs/world/loading-screens-options.md` A/B & tip text (`7145192137`).
 
