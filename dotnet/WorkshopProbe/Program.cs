@@ -39,7 +39,10 @@ try
     }
     var item = Opt("--item");
     var match = Opt("--match") ?? "Workbench|Lab|Station";
+    var dlc = Opt("--sfbgs00d");
     if (rest.Count == 3 && rest[0] == "build") return WorkshopProbe.Build(rest[1], rest[2], item);
+    if (rest.Count == 3 && rest[0] == "ws0a-build") return Ws0aProbes.Build(rest[1], rest[2], dlc);
+    if (rest.Count == 2 && rest[0] == "ws0a-check") return Ws0aProbes.Check(rest[1]);
     if (rest.Count == 3 && rest[0] == "check") return WorkshopProbe.Check(rest[1], rest[2], item);
     if (rest.Count == 2 && rest[0] == "fixture") return WorkshopProbe.Fixture(rest[1]);
     if (rest.Count == 2 && rest[0] == "survey") return WorkshopProbe.Survey(rest[1]);

@@ -166,8 +166,11 @@ static class WorkshopCore
         0x000E6A3E, // OutpostCategoryMiscInterior
     };
 
-    public const uint NextId = 0x858;
-    public const int ExpectedOwnRecordCount = 41;
+    public const uint WorkshopStartViaScriptGlobId = 0x000858;
+    public const string WorkshopStartViaScriptGlobEdid = "FO4SF_WorkshopStartViaScript";
+
+    public const uint NextId = 0x859;
+    public const int ExpectedOwnRecordCount = 42;
     public const int ExpectedOverrideRecordCount = 2;
     public const int ExpectedMajorRecordCount = ExpectedOwnRecordCount + ExpectedOverrideRecordCount;
 
@@ -740,6 +743,7 @@ static class WorkshopCore
         mod.Globals.Add(MakeGlobal(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f));
         mod.Globals.Add(MakeGlobal(TrackedStationCountGlobId, "FO4SF_TrackedStationCount", 0.0f));
         mod.Globals.Add(MakeGlobal(SanctuaryCleanBenchSwapGlobId, SanctuaryCleanBenchSwapGlobEdid, 0.0f));
+        mod.Globals.Add(MakeGlobal(WorkshopStartViaScriptGlobId, WorkshopStartViaScriptGlobEdid, 0.0f));
 
         // 2. Portable C.A.M.P., Pack-Up, Settlement, and Scrapper Kits
         var campKitTpl = PickMiscTemplate(sf, new[] { "Tool_DuctTape01", "Deskfan03" }, tpl.DefaultMiscTemplate);
@@ -789,6 +793,18 @@ static class WorkshopCore
             else
             {
                 cobj = new ConstructibleObject(Own(r.Id), Release) { FormVersion = 581 };
+            }
+
+            if (r.Id == CobjFo4PortableCampKitId) // until owner Q6
+            {
+                var tmCondData = new GetGlobalValueConditionData { RunOnType = Condition.RunOnType.Subject };
+                tmCondData.FirstParameter.Link.SetTo(testModeKey);
+                cobj.Conditions.Add(new ConditionFloat
+                {
+                    CompareOperator = CompareOperator.NotEqualTo,
+                    ComparisonValue = 0.0f,
+                    Data = tmCondData,
+                });
             }
 
             cobj.EditorID = r.Edid;
@@ -957,7 +973,7 @@ static class WorkshopCore
         var outPath = Path.Combine(outDir, Plugin.FileName);
         Console.WriteLine($"templates: {tpl.Summary}");
         Console.WriteLine($"wrote {outPath} ({new FileInfo(outPath).Length:N0} bytes): " +
-                          $"1 QUST (TestModeGlobal -> {testModeKey}), 5 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
+                          $"1 QUST (TestModeGlobal -> {testModeKey}), 6 GLOB (excl={exclRadius.ToString("0.#", CultureInfo.InvariantCulture)}m, cleanSwap=0), " +
                           $"10 MISC, 4 ALCH, 2 FURN + 1 CONT + 11 COBJ (3 Sanctuary zero-skill, swap-gated 0x84A==1), 5 own FLST + 2 Outpost FLST overrides (0 LCTN/STDT/PNDT), " +
                           $"1 KYWD + 1 ACTI (Sanctuary Hills Workshop, 0 Starfield OutpostCategory* KWs)");
         return 0;
@@ -1066,6 +1082,7 @@ static class WorkshopCore
         CheckGlob(TrackedWorkshopCountGlobId, "FO4SF_TrackedWorkshopCount", 0.0f);
         CheckGlob(TrackedStationCountGlobId, "FO4SF_TrackedStationCount", 0.0f);
         CheckGlob(SanctuaryCleanBenchSwapGlobId, SanctuaryCleanBenchSwapGlobEdid, 0.0f);
+        CheckGlob(WorkshopStartViaScriptGlobId, WorkshopStartViaScriptGlobEdid, 0.0f);
 
         // 3. CMPO -> IRES -> MISC FormLists check
         var iresList = mod.FormLists.FirstOrDefault(x => x.FormKey == Own(CmpoIresListId));
@@ -1137,9 +1154,25 @@ static class WorkshopCore
             var wantCreated = r.CreatedOwnId == 0 ? tpl.AmmoProduct : Own(r.CreatedOwnId);
             Need(c.CreatedObject.FormKey == wantCreated && c.AmountProduced == r.AmountProduced,
                 $"COBJ {r.Edid} CreatedObject/AmountProduced mismatch");
-            Need(c.Conditions.Count == 0 && (c.RequiredPerks?.Count ?? 0) == 0 &&
-                 c.LearnMethod == ConstructibleObject.LearnMethodEnum.DefaultOrConditions,
-                $"COBJ {r.Edid} has unexpected Conditions, RequiredPerks, or LearnMethod lock");
+            if (r.Id == CobjFo4PortableCampKitId)
+            {
+                var tmCond = c.Conditions.Count == 1 ? c.Conditions[0] as IConditionFloatGetter : null;
+                var tmData = tmCond?.Data as IGetGlobalValueConditionDataGetter;
+                Need(tmCond != null &&
+                     tmCond.CompareOperator == CompareOperator.NotEqualTo &&
+                     MathF.Abs(tmCond.ComparisonValue - 0.0f) < 1e-4f &&
+                     tmData != null &&
+                     tmData.FirstParameter.Link.FormKey == testModeKey &&
+                     (c.RequiredPerks?.Count ?? 0) == 0 &&
+                     c.LearnMethod == ConstructibleObject.LearnMethodEnum.DefaultOrConditions,
+                    $"COBJ {r.Edid} missing TestMode gate GetGlobalValue(FO4SF_TestModeEnabled != 0.0) or has RequiredPerks/LearnMethod lock");
+            }
+            else
+            {
+                Need(c.Conditions.Count == 0 && (c.RequiredPerks?.Count ?? 0) == 0 &&
+                     c.LearnMethod == ConstructibleObject.LearnMethodEnum.DefaultOrConditions,
+                    $"COBJ {r.Edid} has unexpected Conditions, RequiredPerks, or LearnMethod lock");
+            }
 
             var comps = c.ConstructableComponents?.Select(cc => (cc.Component.FormKey, cc.RequiredCount)).ToList() ?? new();
             var wantComps = r.Costs.Select(k => (tpl.CmpoPairs[k.CmpoIndex].Ires, k.Count)).ToList();
@@ -1603,7 +1636,15 @@ static class WorkshopCore
         ExpectTamperFail("e6_localized_header_leaked", m =>
             m.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Localized);
 
-        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 15 tamper controls passed)");
+        // 16. WS0a: C.A.M.P. kit COBJ 0x843 missing TestMode gate
+        ExpectTamperFail("ws0a_camp_kit_ungated", m =>
+            m.ConstructibleObjects.First(c => c.FormKey == Own(CobjFo4PortableCampKitId)).Conditions.Clear());
+
+        // 17. WS0a: FO4SF_WorkshopStartViaScript 0x858 default non-zero
+        ExpectTamperFail("ws0a_start_via_script_nonzero", m =>
+            m.Globals.First(g => g.FormKey == Own(WorkshopStartViaScriptGlobId)).Data = 1.0f);
+
+        Console.WriteLine("selftest: ok (full + minimal fixtures, options, and 17 tamper controls passed)");
         return 0;
     }
 }

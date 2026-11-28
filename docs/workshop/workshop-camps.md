@@ -6,7 +6,7 @@
 
 | Component | Path | Purpose |
 |---|---|---|
-| Plugin generator & checker | `dotnet/WorkshopCore/Program.cs` | `build`, `check`, `fixture` (`full`/`minimal`), `selftest` (7 tamper negative controls) |
+| Plugin generator & checker | `dotnet/WorkshopCore/Program.cs` | `build`, `check`, `fixture` (`full`/`minimal`), `selftest` (17 tamper negative controls) |
 | Quest & persistence controller | `scripts/workshop/FO4SF_WorkshopCoreQuest.psc` | Save-reload tracking, `CMPO -> IRES` scrapping, recipe audit, portable C.A.M.P. deploy/exclusion/pack-up |
 | Stager, folder, verifier & log CLI | `scripts/workshop/make_workshop_core.py` | `precheck`, `stage`, `fold` (`--hardlink`), `verify`, `log`, `console` |
 | Ride-along installer | `scripts/workshop/workshop_core_install.py` | Reversible install/uninstall via `Data/FO4SFWorkshop.install.json` |
@@ -14,9 +14,9 @@
 | Unit & contract tests | `tests/test_workshop_core.py` | FormID sync, `CMPO` math, binary header/record checks, `selftest`, `stage`/`fold`/`verify`, redaction |
 
 ### Master & Override Discipline
-- `FO4SFWorkshop.esm` is flagged `Master`, lists **`[Starfield.esm]` as its sole master**, adds **32** records (`0x000800..0x000847`), and overrides **0** records.
+- `FO4SFWorkshop.esm` is flagged `Master`, lists **`[Starfield.esm, FO4SFCoreValues.esm]` as its masters**, adds **42** own records (`0x000800..0x000858`), overrides **2** unlocalized Outpost category `FormList` records (`0x058606` and `0x1A5507`, `44` major records total), and emits `0` `LCTN`, `STDT`, or `PNDT` overrides (`HeaderFlag.Localized` cleared).
 - `FO4TerrainCore.esm` / `FO4TerrainCore_Mars.esm` is never added as a master and no core cell is ever overridden: `FO4SF_WorkshopCoreQuest` resolves the terrain core's workshop base (`0x0A2ECD`) dynamically via `Game.GetFormFromFile` (falling back to `Starfield.esm` `WorkbenchIndustrial` `0x1F50AD` in standalone environments).
-- `FO4SF_WorkshopCoreQuest` (`0x000800`) carries **0 script properties**, keeping base lookups non-persistent while storing active world references in persistent quest script arrays (`TrackedWorkshops`, `TrackedBeacons`, `TrackedStations`) serialized in the save file.
+- `FO4SF_WorkshopCoreQuest` (`0x000800`) carries **1 script property (`TestModeGlobal` -> `000860:FO4SFCoreValues.esm`)**, keeping base lookups non-persistent while storing active world references in persistent quest script arrays (`TrackedWorkshops`, `TrackedBeacons`, `TrackedStations`) serialized in the save file.
 
 ---
 
@@ -36,8 +36,13 @@
 | `0x000819` | `FLST` | `FO4SF_CmpoMiscList` | 18-entry `FormList` of resolved `Starfield.esm` `MISC` resource items |
 | `0x00081A` | `FLST` | `FO4SF_ScrapJunkList` | 4-entry `FormList` of salvage junk `MISC` items (`0x000820..0x000823`) |
 | `0x00081B` | `MISC` | `FO4SF_ScrapToken` | Droppable Field Scrapper Kit converting inventory junk into `MISC`/`IRES` |
-| `0x00081C` | `FLST` | `FO4SF_BenchRecipesList` | 8-entry `FormList` of FO4 `COBJ` + FNV `RCPE` bench recipes (`0x000840..0x000847`) |
+| `0x00081C` | `FLST` | `FO4SF_BenchRecipesList` | 8-entry `FormList` of FO4 `COBJ` + FNV `RCPE` bench recipes (`0x000840..0x000847`; `0x000843` gated on `FO4SF_TestModeEnabled != 0.0 // until owner Q6`) |
 | `0x00081D` | `FLST` | `FO4SF_KitFilterList` | 4-entry `FormList` bound via `AddInventoryEventFilter` |
+| `0x000848` | `KYWD` | `FO4SF_WorkshopCategorySanctuary` | Clean `Sanctuary` category keyword (`RecipeFilter`, appended to `0x058606`/`0x1A5507`) |
+| `0x000849` | `ACTI` | `FO4SF_SanctuaryWorkshopBench` | Opt-in clean Sanctuary bench (`workbenchgarage01.nif`, `0x84A` swap switch, default OFF) |
+| `0x00084A` | `GLOB` | `FO4SF_SanctuaryCleanBenchSwap` | Clean bench swap switch (`0.0` default OFF) |
+| `0x00084B..0x00084D` | `FURN`/`CONT` | `FO4SF_Sanctuary_WoodChair` / `SleepingCot` / `StorageCrate` | 3 clean Sanctuary outpost placeables (swap-gated via `0x00084E..0x000850` on `0x84A == 1.0`, zero skill gates) |
+| `0x000858` | `GLOB` | `FO4SF_WorkshopStartViaScript` | WS0a opening-toast candidate switch (`0.0` default OFF; when `1.0`, blocks E native build trigger and runs `StartWorkshop(true)` after release) |
 
 ---
 
@@ -86,7 +91,7 @@ All 8 recipes use resolved `Starfield.esm` `IRES` components, `LearnMethod = Def
 | `0x000840` | `FO4SF_COBJ_FO4_FieldMedkit` | FO4 `COBJ` | `WorkbenchChemlabRecipeKeyword` | `1x FO4SF_Craft_FieldMedkit` (`0x830`) | Antiseptic x2, Steel x1, Cloth x1 |
 | `0x000841` | `FO4SF_COBJ_FO4_WeaponPartsKit` | FO4 `COBJ` | `WorkbenchIndustrialKeyword` | `1x FO4SF_Craft_WeaponPartsKit` (`0x831`) | Steel x3, Adhesive x2, Screws x2, Aluminum x2 |
 | `0x000842` | `FO4SF_COBJ_FO4_SensorModule` | FO4 `COBJ` | `WorkbenchIndustrialKeyword` | `1x FO4SF_Craft_SensorModule` (`0x832`) | Copper x2, Circuitry x2, Glass x1 |
-| `0x000843` | `FO4SF_COBJ_FO4_PortableCAMPKit` | FO4 `COBJ` | `WorkbenchIndustrialKeyword` | `1x FO4SF_CAMPKit` (`0x810`) | Steel x4, Aluminum x3, Gears x2, Circuitry x1 |
+| `0x000843` | `FO4SF_COBJ_FO4_PortableCAMPKit` | FO4 `COBJ` | `WorkbenchIndustrialKeyword` | `1x FO4SF_CAMPKit` (`0x810`) | Steel x4, Aluminum x3, Gears x2, Circuitry x1 (`TestMode != 0.0` gated // until owner Q6) |
 | `0x000844` | `FO4SF_RCPE_NV_SurgicalBag` | FNV `RCPE` | `WorkbenchChemlabRecipeKeyword` | `1x FO4SF_Craft_SurgicalBag` (`0x833`) | Antiseptic x2, Cloth x2, Rubber x1 |
 | `0x000845` | `FO4SF_RCPE_NV_CombatBlend` | FNV `RCPE` | `WorkbenchChemlabRecipeKeyword` | `1x FO4SF_Craft_CombatBlend` (`0x834`) | Antiseptic x2, Plastic x1, Lead x1 |
 | `0x000846` | `FO4SF_RCPE_NV_HandLoad777` | FNV `RCPE` | `WorkbenchIndustrialKeyword` | `12x Ammo777mm` | Lead x2, Copper x2, Oil x1 |

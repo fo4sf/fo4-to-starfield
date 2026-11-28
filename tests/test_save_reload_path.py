@@ -455,7 +455,7 @@ class SaveReloadPathTests(unittest.TestCase):
         funcs = ("Actor.OnPlayerLoadGame", "CompleteSanctuaryObjective")
         vars_csv = (
             "completed, boundBench, benchActivated, talkSessionId, talkBoxOpen, "
-            "benchMenuOpen, sturgesHeld, a4Upgraded, applied"
+            "benchMenuOpen, sturgesHeld, a4Upgraded, startViaScriptBlocked, applied"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(SANCTUARY_PSC), "exec")
 
@@ -482,6 +482,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 benchMenuOpen=False,
                 sturgesHeld=False,
                 a4Upgraded=False,
+                startViaScriptBlocked=False,
                 applied=stage,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: ulogs.append(n)),
                 Game=SimpleNamespace(GetPlayer=lambda: player),
