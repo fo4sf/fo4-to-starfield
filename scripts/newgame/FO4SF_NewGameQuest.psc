@@ -4011,11 +4011,27 @@ bool Function SyncPipboyOwnedWornState(Actor player)
 EndFunction
 
 Function LogPipboyWrist3DNodes(Actor player)
-{Logs wrist housing & screen node attachment ~1 s after pickup or re-equip across all 4 staged 1P/3P NIF node prefixes.}
+; Housing BSGeometry names are the four prefixes plus material-group index 0..5 (stage_pipboy_wrist.py).
+; FO4 partition ids _01/_11/_21 are not written. 2h-5 logged housing=false while the mesh drew (screen=true).
     if player == None
         return
     endif
-    bool hasHousing = player.HasNode("FO4WristHousing1st_21") || player.HasNode("FO4WristHousing1stF_21") || player.HasNode("FO4WristHousingM_21") || player.HasNode("FO4WristHousingF_21") || player.HasNode("FO4WristHousing1st_01") || player.HasNode("FO4WristHousing1stF_01") || player.HasNode("FO4WristHousingM_11") || player.HasNode("FO4WristHousingF_11")
+    bool hasHousing = player.HasNode("FO4WristHousing1st_0") || player.HasNode("FO4WristHousing1stF_0") || player.HasNode("FO4WristHousingM_0") || player.HasNode("FO4WristHousingF_0")
+    if !hasHousing
+        hasHousing = player.HasNode("FO4WristHousing1st_1") || player.HasNode("FO4WristHousing1stF_1") || player.HasNode("FO4WristHousingM_1") || player.HasNode("FO4WristHousingF_1")
+    endif
+    if !hasHousing
+        hasHousing = player.HasNode("FO4WristHousing1st_2") || player.HasNode("FO4WristHousing1stF_2") || player.HasNode("FO4WristHousingM_2") || player.HasNode("FO4WristHousingF_2")
+    endif
+    if !hasHousing
+        hasHousing = player.HasNode("FO4WristHousing1st_3") || player.HasNode("FO4WristHousing1stF_3") || player.HasNode("FO4WristHousingM_3") || player.HasNode("FO4WristHousingF_3")
+    endif
+    if !hasHousing
+        hasHousing = player.HasNode("FO4WristHousing1st_4") || player.HasNode("FO4WristHousing1stF_4") || player.HasNode("FO4WristHousingM_4") || player.HasNode("FO4WristHousingF_4")
+    endif
+    if !hasHousing
+        hasHousing = player.HasNode("FO4WristHousing1st_5") || player.HasNode("FO4WristHousing1stF_5") || player.HasNode("FO4WristHousingM_5") || player.HasNode("FO4WristHousingF_5")
+    endif
     bool hasScreen = player.HasNode("PipboyScreen")
     Trace("pipboy wrist 3d housing=" + hasHousing + " screen=" + hasScreen)
 EndFunction

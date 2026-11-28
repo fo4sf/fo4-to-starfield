@@ -1290,7 +1290,7 @@ class G5G12PipboyEquipAndAutosaveTests(unittest.TestCase):
                 state["played_idles"].append(idle)
                 return True
             def HasNode(self, node_name):
-                return node_name in ("FO4WristHousing1st_21", "PipboyScreen")
+                return node_name in ("FO4WristHousing1st_0", "PipboyScreen")
 
         player = _Player()
         glob = SimpleNamespace(
