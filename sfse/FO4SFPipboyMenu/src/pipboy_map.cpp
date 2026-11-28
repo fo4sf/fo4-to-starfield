@@ -88,12 +88,15 @@ namespace
 		"FO4Appalachia.esm"sv,
 	} };
 
-	constexpr std::array<std::string_view, 5> kMapUserEvents{ {
+	constexpr std::array<std::string_view, 8> kMapUserEvents{ {
 		"Map"sv,
+		"QuickMap"sv,
 		"SurfaceMap"sv,
 		"PlanetMap"sv,
 		"GalaxyMap"sv,
 		"StarMap"sv,
+		"LocalMap"sv,
+		"OpenMap"sv,
 	} };
 
 	// Canonical Fallout 4 Commonwealth world-map corners (MNAM cells -33..28, 25..-36 -> outer cell edges in FO4 units)
@@ -1070,6 +1073,7 @@ namespace
 			std::scoped_lock lock(g_snapLock);
 			next = g_snap;
 		}
+		bool isExterior = false;
 		if (CheckSingleton("PlayerCharacter", kPlayerSingleton, kPlayerRtti, g_playerOk)) {
 			const auto           player = Singleton(kPlayerSingleton);
 			std::array<float, 3> xyz{};
@@ -1095,7 +1099,8 @@ namespace
 			std::uintptr_t cell = 0;
 			std::uintptr_t world = 0;
 			if (Peek(player + kParentCellAt, cell) && cell && Peek(cell + kCellWorldAt, world)) {
-				next.locationName = world ? "COMMONWEALTH" : "INTERIOR";
+				isExterior = (world != 0);
+				next.locationName = isExterior ? "COMMONWEALTH" : "INTERIOR";
 			}
 		}
 
@@ -1158,6 +1163,7 @@ namespace
 
 		std::array<bool, kDiscGlobals> dirtyGroups{};
 		std::uint32_t                  newlySynced = 0;
+		constexpr double               kProxDiscoverFo4Sq = (40.0 * kFo4UnitsPerMetre) * (40.0 * kFo4UnitsPerMetre);
 		for (const auto& m : g_store) {
 			const std::size_t grp = m.index / kBitsPerGlobal;
 			const std::size_t bit = m.index % kBitsPerGlobal;
@@ -1169,10 +1175,22 @@ namespace
 			if (m.pluginCode < kPluginSlotCount && markerLoaded[m.pluginCode]) {
 				engineDisc = IsEngineMarkerDiscovered(markerPrefixes[m.pluginCode], markerSmall[m.pluginCode], m.localId);
 			}
-			if ((m.initialDiscovered || engineDisc) && !oldBit) {
+			bool proxDisc = false;
+			if (!m.initialDiscovered && !oldBit && !engineDisc && next.havePlayer && isExterior && (m.pluginCode <= 1u)) {
+				const double dx = m.xFo4 - next.playerXFo4;
+				const double dy = m.yFo4 - next.playerYFo4;
+				if ((dx * dx + dy * dy) <= kProxDiscoverFo4Sq) {
+					proxDisc = true;
+					if (g_discSyncLogs < kMaxLogLines) {
+						REX::INFO("step=map_disc_prox idx={} label={} dist_m={:.1f}",
+							m.index, m.label, std::sqrt(dx * dx + dy * dy) / kFo4UnitsPerMetre);
+					}
+				}
+			}
+			if ((m.initialDiscovered || engineDisc || proxDisc) && !oldBit) {
 				next.discBits[grp] |= (1u << bit);
 				dirtyGroups[grp] = true;
-				if (engineDisc) {
+				if (engineDisc || proxDisc) {
 					++newlySynced;
 				}
 			}
@@ -1232,21 +1250,44 @@ namespace
 		queue->AddMessage(OurMenuFixed(), RE::UI_MESSAGE_TYPE::kUpdate);
 	}
 
-	// T2 (Round 6): default MapBlockStarMap=0 uses hide-only SuppressVanillaMapMenus() (proven outdoor M-key safe).
-	// When MapBlockStarMap=1 is opted in, BlockedMapMenuCreateForSlot constructs a real non-null minimal self-hiding
-	// IMenu via g_blockedFactoryFn so callers dereferencing [menu + 0xB0] immediately after initFunc never read nullptr.
+	using MenuCreateFn = RE::Scaleform::Ptr<RE::IMenu>* (*)(RE::Scaleform::Ptr<RE::IMenu>*);
+	std::array<MenuCreateFn, kMaxMapMenus> g_origMapMenuCreators{};
+
+	// T2 (Round 12): default MapBlockStarMap=0 uses hide-only SuppressVanillaMapMenus() (proven outdoor M-key safe).
+	// When MapBlockStarMap=1 is opted in, EVERY slot (0..15) constructs a non-null self-hiding IMenu (refCount == 2)
+	// via g_blockedFactoryFn before Starfield's UI::ProcessMessages (RVA +0x2540dc6) dereferences [menu + 0xB0].
+	// Empty Ptr<IMenu> fallback (std::construct_at) is completely eliminated; if factory fails, delegate to the saved
+	// original creator + queue kHide immediately so [menu + 0xB0] is never read on nullptr.
 	RE::Scaleform::Ptr<RE::IMenu>* BlockedMapMenuCreateForSlot(RE::Scaleform::Ptr<RE::IMenu>* a_out, std::size_t a_slot)
 	{
+		if (!a_out) {
+			return nullptr;
+		}
 		const char* menuName = (a_slot < g_mapMenus.size()) ? g_mapMenus[a_slot].c_str() : "GalaxyStarMapMenu";
 		bool        nonNull = false;
-		if (g_blockedFactoryFn && g_blockedFactoryFn(menuName, a_out)) {
+		bool        usedOrigFallback = false;
+		if (g_blockedFactoryFn && g_blockedFactoryFn(menuName, a_out) && a_out->get() != nullptr) {
 			nonNull = true;
+		} else if (a_slot < g_origMapMenuCreators.size() && g_origMapMenuCreators[a_slot]) {
+			usedOrigFallback = true;
+			g_origMapMenuCreators[a_slot](a_out);
+			nonNull = (a_out->get() != nullptr);
+			if (auto* queue = RE::UIMessageQueue::GetSingleton()) {
+				const auto& names = MapMenusFixed();
+				if (a_slot < names.size()) {
+					queue->AddMessage(names[a_slot], RE::UI_MESSAGE_TYPE::kHide);
+				}
+			}
 		} else {
-			std::construct_at(a_out);
+			std::memset(a_out, 0, sizeof(*a_out));
 		}
 		const auto n = ++g_starMapBlocks;
 		if (n <= kMaxLogLines) {
-			REX::INFO("step=starmap_blocked n={} blocked menu={} route=create non_null={}", n, menuName, nonNull ? 1 : 0);
+			if (usedOrigFallback) {
+				REX::INFO("step=starmap_blocked n={} blocked menu={} route=orig_hide non_null={}", n, menuName, nonNull ? 1 : 0);
+			} else {
+				REX::INFO("step=starmap_blocked n={} blocked menu={} route=create non_null={}", n, menuName, nonNull ? 1 : 0);
+			}
 		}
 		return a_out;
 	}
@@ -1261,8 +1302,6 @@ namespace
 	{
 		return BlockedMapMenuCreateForSlot(a_out, Slot);
 	}
-
-	using MenuCreateFn = RE::Scaleform::Ptr<RE::IMenu>* (*)(RE::Scaleform::Ptr<RE::IMenu>*);
 
 	constexpr std::array<MenuCreateFn, kMaxMapMenus> kBlockedMapMenuCreators{ {
 		&BlockedStarMapCreate,
@@ -1315,6 +1354,10 @@ namespace
 		if (!g_blockStarMap) {
 			return;
 		}
+		if (!g_blockedFactoryFn) {
+			RefuseStep("starmap_block", "reason=missing_blocked_factory");
+			return;
+		}
 		auto* ui = RE::UI::GetSingleton();
 		if (!ui) {
 			return;
@@ -1345,6 +1388,7 @@ namespace
 					RefuseStep("starmap_block", std::format("menu={} init_func={} reason=outside_image", blocked, Hex(origAddr)));
 					break;
 				}
+				g_origMapMenuCreators[slot] = entry.value.initFunc;
 				if (slot == 0) {
 					entry.value.initFunc = &BlockedStarMapCreate;
 				} else {

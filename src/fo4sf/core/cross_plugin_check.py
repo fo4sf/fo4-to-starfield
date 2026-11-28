@@ -66,17 +66,20 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0301C5: ("PACK", "DefaultMaster_FollowPackage"),
         0x042240: ("PACK", "DefaultCombatMasterPackage"),
         0x047600: ("KYWD", "QuestTypeSideQuest"),
+        0x0476C4: ("WEAP", "Eon"),
         0x04AD3E: ("AMMO", "Ammo777mm"),
         0x04AD3F: ("AMMO", "Ammo11mm"),
         0x0547A1: ("AMMO", "AmmoCaselessShotgun"),
         0x0547A3: ("WEAP", "Breach"),
         0x054BA7: ("KYWD", "WorkshopWorkbenchType"),
+        0x058606: ("FLST", "OutpostRecipeCategories"),
         0x081886: ("ARMA", "AA_MiniBotA_Gardening"),
         0x089605: ("PACK", "DefaultSandboxCurrentLocation"),
         0x0A7D31: ("GLOB", "MQ101Debug"),
         0x0AA209: ("KYWD", "WorkbenchIndustrialKeyword"),
         0x0B0885: ("SPEL", "abBoostAssaultSlowTime"),
         0x105688: ("CONT", "VaultCaseTemplate"),
+        0x1A5507: ("FLST", "OutpostFollowCameraCategoryList"),
         0x1A9565: ("QUST", "SQ_Groups"),
         0x1CCAC2: ("ACTI", "ControlConsoleTemplate"),
         0x1F50AD: ("KYWD", "OutpostBuildKeyword"),
@@ -100,6 +103,20 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
     "FO4TerrainCore.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
+        0x000802: ("LCTN", "FO4Core_CommonwealthLocation"),
+        0x000803: ("WRLD", "FO4Core_Commonwealth"),
+        0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
+        0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
+        0x0A7759: ("REFR", "FO4Core_CommonwealthMapMarker"),
+        0x0A775A: ("REFR", "FO4Core_CommonwealthMapMarkerSanctuary"),
+        0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
+        0x0A775C: ("REFR", "FO4Core_CommonwealthMapMarkerConcord"),
+    },
+    "FO4TerrainCore_Mars.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
@@ -107,13 +124,33 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
-    "FO4TerrainCore_Mars.esm": {
+    "FO4SFHome.esm": {
+        0x000800: ("STDT", "FO4SFHomeStar"),
+        0x000801: ("LCTN", "SFO4SFHome"),
+        0x000802: ("LCTN", "SFO4SFHome_PEarth"),
+        0x000803: ("LCTN", "SFO4SFHome_PEarth_Orbit"),
+        0x000804: ("LCTN", "SFO4SFHome_PEarth_Surface"),
+        0x000805: ("PNDT", "FO4SF_EarthPlanetData"),
+        0x000806: ("BIOM", "FO4SFHomeBiome"),
+        0x000807: ("WTHR", "FO4SFHomeClearWeather"),
+        0x000808: ("CLMT", "FO4SFHomeClimate"),
+        0x000809: ("ATMO", "FO4SFHomeAtmosphere"),
+        0x00080A: ("LTEX", "FO4SFHomeGroundDirt01"),
+        0x00080C: ("WATR", "FO4SFHomeDryWater"),
+    },
+    "FO4TerrainCore_Home.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
+        0x000802: ("LCTN", "FO4Core_CommonwealthLocation"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
+        0x00E18A: ("LCTN", "FO4Port_InteriorsLocation"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
+        0x0A7759: ("REFR", "FO4Core_CommonwealthMapMarker"),
+        0x0A775A: ("REFR", "FO4Core_CommonwealthMapMarkerSanctuary"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
+        0x0A775C: ("REFR", "FO4Core_CommonwealthMapMarkerConcord"),
     },
     "FO4ActorRaider.esm": {
         0xF04800: ("NPC_", "FO4_LvlRaider"),
@@ -300,17 +337,27 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
     }
     m_sanc_scr = re.search(r'SanctuaryScriptName\s*=\s*"([^"]+)"', body)
     sanctuary_script = m_sanc_scr.group(1) if m_sanc_scr else default_script
+    m_cods_scr = re.search(r'CodsworthScriptName\s*=\s*"([^"]+)"', body)
+    codsworth_script = m_cods_scr.group(1) if m_cods_scr else default_script
 
     local_formkey_vars: Dict[str, Tuple[str, int]] = {}
     if own_plugin == "FO4SFMission.esm":
         for vname, cname in (
             ("prestonRef", "PrestonRefId"),
             ("prestonScene", "PrestonTalkSceneId"),
+            ("prestonPostScene", "PrestonPostTalkSceneId"),
             ("codsRef", "CodsworthRefId"),
+            ("codsworthPostScene", "CodsworthPostSceneId"),
+            ("concordSidearm", "ConcordRaiderSidearmWeapId"),
+            ("concordPrimary", "ConcordRaiderPrimaryWeapId"),
         ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = (own_plugin, uint_consts[cname])
-        for vname, cname in (("credits", "CreditsId"), ("xMarker", "XMarkerId")):
+        for vname, cname in (
+            ("credits", "CreditsId"),
+            ("xMarker", "XMarkerId"),
+            ("raiderSidearmAmmo", "SfRaiderSidearmAmmoId"),
+        ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = ("Starfield.esm", uint_consts[cname])
 
@@ -392,13 +439,18 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
             return (modkey_aliases[m_fk.group(1)], cid) if cid is not None else None
         return None
 
-    for m in re.finditer(r'(SanctuaryObjProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
+    for m in re.finditer(r'(SanctuaryObjProp|CodsworthProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
         helper_name, pname, fk_expr = m.group(1), m.group(2), m.group(3)
         if not pname:
             continue
         res = resolve_fk(fk_expr)
         if res is not None:
-            scr = sanctuary_script if helper_name == "SanctuaryObjProp" else default_script
+            if helper_name == "SanctuaryObjProp":
+                scr = sanctuary_script
+            elif helper_name == "CodsworthProp":
+                scr = codsworth_script
+            else:
+                scr = default_script
             bindings.append(VmadPropBinding(cs_rel, scr, pname, res[0], res[1]))
 
     for m in re.finditer(r'\["([A-Za-z_]\w*)"\]\s*=\s*([^,\r\n}]+)', body):
@@ -515,12 +567,16 @@ def _infer_type_from_const_name(const_name: str) -> str:
         return "INFO"
     if "dlbr" in low or "branch" in low:
         return "DLBR"
+    if "scen" in low:
+        return "SCEN"
     if "race" in low:
         return "RACE"
     if "token" in low or "kitid" in low or "coreid" in low or "fanid" in low or "tapeid" in low or "plateid" in low or "canid" in low:
         return "MISC"
     if "pack" in low or "pkg" in low:
         return "PACK"
+    if low.endswith("contid") or "_cont_" in low:
+        return "CONT"
     if "furn" in low or ("frame" in low and "ref" not in low) or ("chair" in low and "ref" not in low):
         return "FURN"
     if "armor" in low or "helm" in low or "bodyid" in low or "piece" in low or "torsoid" in low or "armid" in low or "legid" in low:
@@ -687,15 +743,25 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x942, "INFO", "FO4SF_Codsworth01_GreetInfo"),
             (0x970, "ACTI", "FO4SF_CodsworthTalkActi"),
             (0x979, "GLOB", "FO4SF_MissionTalkUseMessageBox"),
+            (0x97A, "WEAP", "FO4SF_ConcordRaiderSidearm"),
+            (0x97B, "WEAP", "FO4SF_ConcordRaiderPrimary"),
             # C5: Preston & Concord Raider Fallout 4 outfits / armatures / armors (0x980..0x98A)
             (0x980, "OTFT", "FO4_Outfit_PrestonMinuteman"),
             (0x981, "ARMA", "FO4_AA_PrestonDuster"),
             (0x983, "ARMO", "FO4_Armor_PrestonMinuteman"),
             (0x984, "ARMA", "FO4_AA_PrestonHat"),
             (0x985, "ARMO", "FO4_Armor_PrestonHat"),
+            (0x986, "NPC_", "FO4_ConcordRaider"),
             (0x988, "OTFT", "FO4_Outfit_ConcordRaider"),
             (0x989, "ARMA", "FO4_AA_ConcordRaider"),
             (0x98A, "ARMO", "FO4_Armor_ConcordRaider"),
+            # R11 Part 3 (2g-fix2): Repeat post-completion Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
+            (0x990, "SCEN", "FO4SF_PrestonPostScene"),
+            (0x991, "DIAL", "FO4SF_PrestonPostGreetTopic"),
+            (0x992, "INFO", "FO4SF_PrestonPostGreetInfo"),
+            (0x9C0, "SCEN", "FO4SF_CodsworthPostScene"),
+            (0x9C1, "DIAL", "FO4SF_CodsworthPostGreetTopic"),
+            (0x9C2, "INFO", "FO4SF_CodsworthPostGreetInfo"),
             # A4: Sanctuary01 (0x817 in place) + MinRecruit00 (0xA20) + MQ103 (0xA50)
             (0xA00, "NPC_", "FO4_Sturges"),
             (0xA01, "ACHR", "FO4SF_Sanctuary_SturgesREF"),
@@ -852,6 +918,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xB54, "MESG", "FO4SF_MQ206_WorkbenchBuildMsg"),
             (0xB55, "MESG", "FO4SF_MQ206_RelayFireMsg"),
             (0xB56, "MESG", "FO4SF_MQ206_OpenModeFallbackMsg"),
+            (0xB60, "CELL", "FO4SF_MissionHoldingCell"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
@@ -1128,7 +1195,7 @@ def validate_psc_form_refs(
     errors: List[str] = []
     for ref in refs:
         # Port/Terrain placed anchors resolved dynamically at build time (e.g. VaultSuitId = 0 default) are checked when in catalog
-        if ref.plugin in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"):
+        if ref.plugin in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4TerrainCore_Home.esm"):
             if ref.form_id not in catalog.get(ref.plugin, {}):
                 continue
 
@@ -1424,7 +1491,7 @@ def validate_staged_esms(
             for alias_id, tgt_plg, tgt_id in vp.object_refs:
                 if alias_id >= 0:
                     continue
-                if tgt_plg in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"):
+                if tgt_plg in ("FO4Port.esm", "FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm", "FO4TerrainCore_Home.esm"):
                     if tgt_id not in merged_catalog.get(tgt_plg, {}):
                         continue
                 if (

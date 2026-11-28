@@ -909,6 +909,21 @@ CORE_FIXED_FO4_ICONS = {
     "FO4Core_CommonwealthMapMarkerConcord": 49,   # Town
 }
 LANDING_MARKER_LOCAL_ID = 0x0008F2
+COMMONWEALTH_ANCHOR_LOCAL_ID = 0x000800
+DIAMOND_CITY_SPEC = {
+    "formid": (1 << 24) | COMMONWEALTH_ANCHOR_LOCAL_ID,
+    "local_id": COMMONWEALTH_ANCHOR_LOCAL_ID,
+    "edid": "FO4SF_DiamondCityAnchor",
+    "label": "Diamond City",
+    "x_m": -15145.20 / FO4_UNITS_PER_M,
+    "y_m": -30057.30 / FO4_UNITS_PER_M,
+    "z_m": 19.20,
+    "arr_z_override": 19.20,
+    "h_deg": 0.0,
+    "sf_tnam": 70,
+    "fo4_icon_override": 2,
+    "fnam": 0x03,
+}
 DEFAULT_CORE_Z_LIFT = 2.5
 
 
@@ -994,6 +1009,7 @@ def build_store_rows(
     z_lift=DEFAULT_CORE_Z_LIFT,
     discover=(),
     include_landing=False,
+    include_diamond_city=False,
 ):
     """Build ordered Pip-Boy MAP store rows from the project's `FO4TerrainCore.esm` and optional `FO4SFMapMarkers.esm`.
 
@@ -1003,6 +1019,8 @@ def build_store_rows(
     - `init_disc` defaults to `False` unless the marker's `FNAM` already carries engine `kDiscovered` (`0x20`) or its
       EditorID / label is listed in `discover`: in game, live discovery comes from the engine's `ExtraMapMarker` state
       (`SetMarkerDiscovered` bit `0x20`) synced into `FO4SF_MapDisc00..13`.
+    - When `include_diamond_city=True`, appends an exterior Diamond City marker anchored to
+      `FO4TerrainCore.esm:0x000800` if no marker labeled `"Diamond City"` is already present.
     """
     sf_to_fo4 = _sf_to_fo4_icon_map()
     export_types = _fo4_export_types(fo4_export)
@@ -1043,13 +1061,17 @@ def build_store_rows(
 
     capacity = DISC_GLOBAL_COUNT * BITS_PER_GLOBAL
     combined = [(1, r) for r in core_ordered] + [(0, r) for r in extra_ordered]
+    if include_diamond_city and not any(r["label"].strip().casefold() == "diamond city" for _, r in combined):
+        combined.append((1, dict(DIAMOND_CITY_SPEC)))
     if len(combined) > capacity:
         raise MapStoreError(f"{len(combined)} markers exceed 24-bit discovery store capacity ({capacity})")
 
     rows = []
     for idx, (plugin_code, info) in enumerate(combined):
         edid = info["edid"]
-        fo4_icon = CORE_FIXED_FO4_ICONS.get(edid)
+        fo4_icon = info.get("fo4_icon_override")
+        if fo4_icon is None:
+            fo4_icon = CORE_FIXED_FO4_ICONS.get(edid)
         if fo4_icon is None:
             m = re.search(r"M([0-9A-Fa-f]{6})$", edid)
             if m:
@@ -1059,7 +1081,10 @@ def build_store_rows(
         if fo4_icon is None or not (0 <= fo4_icon <= MAX_FO4_LOCATION_ICON):
             fo4_icon = DEFAULT_FO4_ICON
 
-        arr_z = info["z_m"] if has_markers_plugin else (info["z_m"] + float(z_lift))
+        if "arr_z_override" in info:
+            arr_z = float(info["arr_z_override"])
+        else:
+            arr_z = info["z_m"] if has_markers_plugin else (info["z_m"] + float(z_lift))
         init_disc = bool(info["fnam"] & 0x20) or (
             edid.casefold() in disc_set or info["label"].casefold() in disc_set
         )
@@ -1137,6 +1162,11 @@ def main(argv=None):
     p_bs.add_argument("--z-lift", type=float, default=DEFAULT_CORE_Z_LIFT, help="Arrival Z lift in m when --markers-esm is omitted")
     p_bs.add_argument("--discover", action="append", default=[], help="Marker label or EditorID initially discovered (repeatable)")
     p_bs.add_argument("--include-landing", action="store_true", help="Include the 0x8F2 ship landing marker if present")
+    p_bs.add_argument(
+        "--include-diamond-city",
+        action="store_true",
+        help="Include an exterior Diamond City marker anchored to FO4TerrainCore.esm:0x000800 if absent",
+    )
     p_bs.add_argument("--out", required=True, help="Output FO4SFPipboyMapMarkers.tsv path")
 
     p_tr = sub.add_parser("stage-travel-esm", help="Write FO4SFPipboyTravel.esm with travel and discovery GLOBs")
@@ -1173,6 +1203,7 @@ def main(argv=None):
             z_lift=args.z_lift,
             discover=args.discover,
             include_landing=args.include_landing,
+            include_diamond_city=args.include_diamond_city,
         )
         n = write_store_tsv(args.out, rows)
         print(f"wrote {n} marker row(s) to {os.path.basename(args.out)}")

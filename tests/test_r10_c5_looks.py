@@ -273,7 +273,8 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
 
                 npcs_by_edid = {r.edid: r for r in p_fixed.records("NPC_")}
                 self.assertIn("FO4_PrestonGarvey", npcs_by_edid)
-                self.assertIn("FO4_LvlRaider", npcs_by_edid)
+                self.assertIn("FO4_ConcordRaider", npcs_by_edid)
+                self.assertNotIn("FO4_LvlRaider", npcs_by_edid, "A2.3: FO4SFMission.esm must not override shared FO4_LvlRaider globally")
                 self.assertIn("FO4_Sturges", npcs_by_edid)
 
                 # Non-C5 NPCs (FO4_Sturges) must remain untouched (no SOFT/DOFT injected)
@@ -291,7 +292,7 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                 self.assertAlmostEqual(mwgt[1], 0.3468, places=3)
                 self.assertAlmostEqual(mwgt[2], 0.2966, places=3)
 
-                for ed in ("FO4_PrestonGarvey", "FO4_LvlRaider"):
+                for ed in ("FO4_PrestonGarvey", "FO4_ConcordRaider"):
                     prps = npcs_by_edid[ed].get(b"PRPS") or b""
                     self.assertEqual(len(prps) % 12, 0)
                     entries = [struct.unpack_from("<IfI", prps, off) for off in range(0, len(prps), 12)]
@@ -300,10 +301,10 @@ Console.WriteLine("C5_STANDALONE_SELFTEST_OK");
                         f"{ed} PRPS missing 0x0B120E == 1.0: {entries}",
                     )
 
-                raider_ov = npcs_by_edid["FO4_LvlRaider"]
-                self.assertEqual(raider_ov.formid & 0xFFFFFF, 0xF04800)
-                self.assertEqual(struct.unpack("<I", raider_ov.get(b"DOFT"))[0] & 0xFFFFFF, 0x988)
-                self.assertEqual(struct.unpack("<I", raider_ov.get(b"SOFT"))[0] & 0xFFFFFF, 0x988)
+                concord_raider = npcs_by_edid["FO4_ConcordRaider"]
+                self.assertEqual(concord_raider.formid & 0xFFFFFF, 0x000986)
+                self.assertEqual(struct.unpack("<I", concord_raider.get(b"DOFT"))[0] & 0xFFFFFF, 0x988)
+                self.assertEqual(struct.unpack("<I", concord_raider.get(b"SOFT"))[0] & 0xFFFFFF, 0x988)
 
     def test_c5_doc_and_source_hygiene(self):
         self.assertFalse(

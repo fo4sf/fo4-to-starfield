@@ -422,6 +422,11 @@ bool returnVaultAsked = false
 bool returnSurfacePending = false
 int returnSurfaceWaitTicks = 0
 int returnSurfaceTries = 0
+bool dyingHookRegistered = false
+bool vaultPodAutosaved = false
+bool vaultSavingRelocked = false
+bool vaultRecoveryTriggered = false
+int vaultPodAutosaveSkips = 0
 
 Event OnQuestStarted()
     Begin("OnQuestStarted")
@@ -583,6 +588,7 @@ Function NoteLooksStage20()
     if applied < 20
         applied = 20
     endif
+    TriggerVaultPodRecoveryAutosave(20)
 EndFunction
 
 bool Function IsPreworldLooksHandled()
@@ -601,15 +607,37 @@ Function ApplyStage(int n, string by)
     if n == 10
         SetObjectiveDisplayed(10)
         SetActive(True)
+    elseif n == 20
+        TriggerVaultPodRecoveryAutosave(n)
     elseif n == 40
+        ClearVaultSaveLock()
         SetObjectiveCompleted(10)
     elseif n == 200
         CompleteQuest()
         StartLandingQuests()
+        ClearVaultSaveLock()
         ReleaseStoryLandingFade()
     elseif n == 210
         CompleteQuest()
         StartLandingQuests()
+        ClearVaultSaveLock()
+    endif
+EndFunction
+
+Function ClearVaultSaveLock()
+    CancelTimer(6)
+    CancelTimer(7)
+    if vaultSavingRelocked
+        vaultSavingRelocked = false
+        Game.SetInChargen(false, false, false)
+    endif
+EndFunction
+
+Function RelockVaultSaving(Actor p, int st)
+    if !vaultSavingRelocked && st >= 10 && st < 200 && (GameModeGlobal == None || (GameModeGlobal.GetValue() as int) != 2) && p != None && StandsInVault(p)
+        vaultSavingRelocked = true
+        Game.SetInChargen(true, false, false)
+        Trace("vault_death_recovery=save_locked stage=" + st)
     endif
 EndFunction
 
@@ -626,6 +654,9 @@ Function AdvanceTo(int n, string by = "Trigger")
 EndFunction
 
 Event OnStageSet(int auiStageID, int auiItemID)
+    if auiStageID == 20
+        TriggerVaultPodRecoveryAutosave(20)
+    endif
     if auiStageID == 20 && looksSetStage20
         return
     endif
@@ -637,6 +668,14 @@ Event OnStageSet(int auiStageID, int auiItemID)
 EndEvent
 
 Event OnTimer(int aiTimerID)
+    if aiTimerID == 6
+        RelockVaultSaving(Game.GetPlayer(), GetStage())
+        return
+    endif
+    if aiTimerID == 7
+        TriggerVaultPodRecoveryAutosave(GetStage())
+        return
+    endif
     if aiTimerID == 5
         Actor storyPlayer = Game.GetPlayer()
         if storyPlayer == None || storyPlayer.IsInInterior()
@@ -1012,6 +1051,14 @@ Function InVault(Actor player, int stage)
     if asked
         return
     endif
+    PromptVaultExitLift(player)
+EndFunction
+
+Function PromptVaultExitLift(Actor player)
+{Shows ExitMessage on the Vault 111 elevator platform (called both on PlatformRadius entry and on direct E control activation).}
+    if rideActive || rideTransferred
+        return
+    endif
     asked = true                                             ; asked once per visit to the platform
     Trace("lift platform waiting cage_door=open")
     int button = ExitMessage.Show()
@@ -1184,9 +1231,9 @@ EndFunction
 Function FinishSurface(Actor player)
 {The ride up, second half: SetPosition on the merged arrival, a tick after the MoveTo at the earliest and once the player
  is outside with their 3D loaded. Because persistent references in the overlay world retain their unmerged local XY while
- exterior grid cells are shifted by MergeOffset, the initial MoveTo lands in a procedural Mars Surface cell of the runtime
- MarsPlanetWorld; SetPosition shifts the player onto the merged core cell first, and the post-move parent cell must then
- carry the core plugin's load index. Exhaustion stops the exit with failure.}
+ exterior grid cells are shifted by MergeOffset, the initial MoveTo lands in a procedural exterior cell of the live host
+ worldspace resolved from ExitAnchorId / Sanctuary workbench; SetPosition shifts the player onto the merged core cell
+ first, and the post-move parent cell must then carry the core plugin's load index. Exhaustion stops the exit with failure.}
     if player.IsInInterior()
         if Utility.GetCurrentRealTime() - surfaceMovedAt > SurfaceWait
             if surfaceMoves < 2
@@ -1449,14 +1496,106 @@ Function StartLandingQuests()
 EndFunction
 
 Function EnsureLoadHookRegistered(Actor player)
-    if !loadHookRegistered && player != None
-        loadHookRegistered = true
-        RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+    if player != None
+        if !loadHookRegistered
+            loadHookRegistered = true
+            RegisterForRemoteEvent(player, "OnPlayerLoadGame")
+        endif
+        if !dyingHookRegistered
+            dyingHookRegistered = true
+            RegisterForRemoteEvent(player, "OnDying")
+        endif
     endif
 EndFunction
 
+Function TriggerVaultPodRecoveryAutosave(int stageNum)
+{Task 1b (#853 M1): Wait until player is 3D-loaded & standing in Vault 111 (retrying via Timer 7 up to 60 skips),
+ autosave once after cryo pod / looks finishes, then Timer 6 re-locks saving inside Vault 111 (< 200).}
+    if vaultPodAutosaved || stageNum < 10 || stageNum >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2)
+        return
+    endif
+    Actor player = Game.GetPlayer()
+    if player == None || player.IsDead()
+        CancelTimer(7)
+        return
+    endif
+    if !player.Is3DLoaded() || !StandsInVault(player)
+        vaultPodAutosaveSkips += 1
+        Trace("vault_death_recovery=autosave_skip skips=" + vaultPodAutosaveSkips + " stage=" + stageNum)
+        if vaultPodAutosaveSkips < 60
+            StartTimer(1.0, 7)
+        endif
+        return
+    endif
+    CancelTimer(7)
+    EnsureLoadHookRegistered(player)
+    vaultPodAutosaved = true
+    vaultRecoveryTriggered = false
+    vaultSavingRelocked = false
+    Game.SetInChargen(false, false, false)
+    Game.RequestAutoSave()
+    Trace("vault_death_recovery=autosave stage=" + stageNum + " skips=" + vaultPodAutosaveSkips)
+    StartTimer(1.5, 6)
+EndFunction
+
+WorldSpace Function ResolveHostWorld()
+{Task 1i (#858 F7): Resolve live host exterior worldspace dynamically from persistent ExitAnchorId (0x0A775B, flags=0x400)
+ FIRST, using Sanctuary workbench (0x005C50, flags=0x0) only as secondary fallback.}
+    ObjectReference anchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
+    if anchor != None
+        WorldSpace aws = anchor.GetWorldSpace()
+        if aws != None
+            return aws
+        endif
+    endif
+    ObjectReference benchRef = Game.GetFormFromFile(0x005C50, CorePlugin) as ObjectReference
+    if benchRef != None
+        WorldSpace bws = benchRef.GetWorldSpace()
+        if bws != None
+            return bws
+        endif
+    endif
+    return None
+EndFunction
+
+Event Actor.OnDying(Actor akSender, ObjectReference akKiller)
+    if akSender == None || akSender != Game.GetPlayer()
+        return
+    endif
+    int st = GetStage()
+    if st >= 200 || (GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 2) || vaultRecoveryTriggered
+        return
+    endif
+    vaultRecoveryTriggered = true
+    if vaultPodAutosaved
+        Trace("vault_death_recovery=autosave stage=" + st)
+        return
+    endif
+    ActorValue healthAv = Game.GetFormFromFile(0x0002D4, "Starfield.esm") as ActorValue
+    if healthAv != None
+        akSender.RestoreValue(healthAv, 9999.0)
+    endif
+    if akSender.IsInInterior() && StandsInVault(akSender)
+        akSender.SetPosition(PodX, PodY, PodZ + PodLift)
+        akSender.SetAngle(0.0, 0.0, PodHeading)
+    else
+        ObjectReference podAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference
+        if podAnchor != None
+            akSender.MoveTo(podAnchor, PodX - AnchorX, PodY - AnchorY, PodZ + PodLift - AnchorZ, False, False)
+            akSender.SetAngle(0.0, 0.0, PodHeading)
+        endif
+    endif
+    Trace("vault_death_recovery=pod_reset stage=" + st)
+    if vaultPodAutosaveSkips >= 60
+        vaultPodAutosaveSkips = 0
+    endif
+    StartTimer(1.0, 7)
+EndEvent
+
 Event Actor.OnPlayerLoadGame(Actor akSender)
     Debug.OpenUserLog(LogName)
+    vaultRecoveryTriggered = false
+    EnsureLoadHookRegistered(akSender)
     int st = GetStage()
     if GameModeGlobal != None && (GameModeGlobal.GetValue() as int) == 0 && st >= 10
         GameModeGlobal.SetValue(1.0)
@@ -1481,6 +1620,9 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
         if wasMidExit && akSender != None
             ReturnPlayerToVaultPlatform(akSender)
             Trace("exit reload recovered stage=" + st + " failures=" + exitFailures)
+        endif
+        if vaultPodAutosaved && !vaultSavingRelocked && akSender != None && StandsInVault(akSender)
+            RelockVaultSaving(akSender, st)
         endif
     endif
     if st >= 200 && returnSurfacePending
@@ -2495,7 +2637,15 @@ Event ObjectReference.OnItemAdded(ObjectReference akSender, Form akBaseItem, int
     endif
     if akBaseItem == VaultPistolBase
         pistolPickedLogged = true
-        Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount)
+        Actor player = Game.GetPlayer()
+        bool equipped = False
+        if player != None
+            if !player.IsEquipped(VaultPistolBase)
+                player.EquipItem(VaultPistolBase, False, False)
+            endif
+            equipped = player.IsEquipped(VaultPistolBase)
+        endif
+        Trace("pistol picked item=" + akBaseItem + " count=" + aiItemCount + " equipped=" + equipped)
     endif
 EndEvent
 
@@ -2792,10 +2942,7 @@ Function CheckReturnLift(Actor player)
     endif
     WorldSpace wantWorld = arrivalWorld
     if wantWorld == None
-        ObjectReference cAnchor = Game.GetFormFromFile(ExitAnchorId, CorePlugin) as ObjectReference
-        if cAnchor != None
-            wantWorld = cAnchor.GetWorldSpace()
-        endif
+        wantWorld = ResolveHostWorld()
     endif
     if wantWorld != None && pWorld != wantWorld
         returnArmTicks = 0

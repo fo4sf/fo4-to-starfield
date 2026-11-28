@@ -27,6 +27,10 @@ Scene Property PrestonTalkScene Auto Const
 {Short 3-exchange Starfield player-dialogue Scene (0x900) on FO4SF_Min00 when built with --alias; None on --no-alias
  and on FO4SF_CodsworthKeeper.}
 
+Scene Property PrestonPostTalkScene Auto Const
+{Repeatable voiced post-mission Starfield player-dialogue Scene (0x990) hosted on FO4SF_CodsworthKeeper (0x814),
+ gated by GetStage(FO4SF_Min00) >= 200 and TalkUseMessageBox == 0.}
+
 Message Property PrestonTalkMsg Auto Const
 Message Property PrestonReply0Msg Auto Const
 Message Property PrestonReply1Msg Auto Const
@@ -34,8 +38,14 @@ Message Property PrestonReply2Msg Auto Const
 GlobalVariable Property TalkUseMessageBox Auto Const
 Weapon Property RaiderWeapon Auto Const
 Ammo Property RaiderAmmo Auto Const
+Weapon Property RaiderSidearm Auto Const
+Ammo Property RaiderSidearmAmmo Auto Const
+float Property RaiderPrimaryRecordDamage = 0.0 Auto Const
+float Property RaiderSidearmRecordDamage = 0.0 Auto Const
+ActorValue Property AttackDamageMult Auto Const
 float Property PrestonSceneCheckSeconds = 1.5 Auto Const
 int Property PrestonSceneMaxWaitChecks = 16 Auto Const
+int Property PrestonMaxSceneRestarts = 3 Auto Const
 
 float Property MergeOffsetX = -1200.0 Auto Const
 float Property MergeOffsetY = -2700.0 Auto Const
@@ -146,6 +156,10 @@ bool prestonSceneMenuOpened = False
 bool prestonScenePhase1 = False
 float prestonPhase1At = 0.0
 int prestonSceneChecks = 0
+int prestonSceneRestarts = 0
+bool prestonPostSceneActive = False
+bool ownPrestonSceneStop = False
+float prestonAttemptStartedAt = 0.0
 int sanctuaryStartRetries = 0
 bool mq103ProxAttempted = False
 bool minRecruitProxAttempted = False
@@ -159,6 +173,9 @@ bool mq206ProxAttempted = False
 float[] raiderTargetX
 float[] raiderTargetY
 float[] raiderTargetZ
+float[] raiderCorpseX
+float[] raiderCorpseY
+float[] raiderCorpseZ
 float[] raiderAbsentSec
 bool[] raiderCleared
 bool[] raiderRescued
@@ -205,6 +222,8 @@ int Function EffectiveStage()
 EndFunction
 
 WorldSpace Function ResolveCommonwealthWorld()
+    ; Task 1i (#858 F7): resolve host world dynamically from persistent V111 exit marker (0x0A775B, flags=0x400)
+    ; FIRST, using Sanctuary workbench (0x005C50, flags=0x0) only as secondary fallback — NEVER hardcoded FO4SFMission world copies.
     ObjectReference v111Marker = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore.esm") as ObjectReference
     if v111Marker == None
         v111Marker = Game.GetFormFromFile(0x0A775B, "FO4TerrainCore_Mars.esm") as ObjectReference
@@ -213,6 +232,13 @@ WorldSpace Function ResolveCommonwealthWorld()
         WorldSpace mws = v111Marker.GetWorldSpace()
         if mws != None
             return mws
+        endif
+    endif
+    ObjectReference benchRef = Game.GetFormFromFile(0x005C50, "FO4TerrainCore.esm") as ObjectReference
+    if benchRef != None
+        WorldSpace bws = benchRef.GetWorldSpace()
+        if bws != None
+            return bws
         endif
     endif
     if prestonPlaced && Preston != None && !Preston.IsInInterior()
@@ -288,12 +314,49 @@ Scene Function ResolvePrestonSceneLogged()
     return None
 EndFunction
 
+Scene Function ResolvePrestonPostScene()
+    if PrestonPostTalkScene != None
+        return PrestonPostTalkScene
+    endif
+    return Game.GetFormFromFile(0x000990, "FO4SFMission.esm") as Scene
+EndFunction
+
+Scene Function ResolveActivePrestonScene(bool postMode)
+    if postMode
+        return ResolvePrestonPostScene()
+    endif
+    return ResolvePrestonScene()
+EndFunction
+
+Function EnsureKeeperPrestonAlias()
+    if Preston == None
+        return
+    endif
+    Quest keeper = Game.GetFormFromFile(0x000814, "FO4SFMission.esm") as Quest
+    if keeper != None
+        if !keeper.IsRunning()
+            keeper.Start()
+        endif
+        ReferenceAlias al = keeper.GetAlias(0) as ReferenceAlias
+        if al != None && al.GetActorRef() != Preston
+            al.ForceRefTo(Preston)
+        endif
+    endif
+EndFunction
+
 Function RegisterPrestonSceneEvents()
     Scene scn = ResolvePrestonScene()
     if scn != None
         RegisterForRemoteEvent(scn, "OnBegin")
         RegisterForRemoteEvent(scn, "OnPhaseBegin")
         RegisterForRemoteEvent(scn, "OnEnd")
+    endif
+    Scene postScn = ResolvePrestonPostScene()
+    if postScn != None
+        EnsureKeeperPrestonAlias()
+        RegisterForRemoteEvent(postScn, "OnBegin")
+        RegisterForRemoteEvent(postScn, "OnPhaseBegin")
+        RegisterForRemoteEvent(postScn, "OnEnd")
     endif
 EndFunction
 
@@ -379,11 +442,26 @@ EndFunction
 Function InitRaiderTracking()
     int count = Raiders.Length
     if raiderCleared != None && raiderCleared.Length == count && raiderRescued != None && raiderRescued.Length == count && raiderEngaged != None && raiderEngaged.Length == count && raiderArmed != None && raiderArmed.Length == count && raiderStartCombatAt != None && raiderStartCombatAt.Length == count
+        if raiderCorpseX == None || raiderCorpseX.Length != count
+            raiderCorpseX = new float[count]
+            raiderCorpseY = new float[count]
+            raiderCorpseZ = new float[count]
+            int ci = 0
+            while ci < count
+                raiderCorpseX[ci] = raiderTargetX[ci]
+                raiderCorpseY[ci] = raiderTargetY[ci]
+                raiderCorpseZ[ci] = raiderTargetZ[ci]
+                ci += 1
+            endwhile
+        endif
         return
     endif
     raiderTargetX = new float[count]
     raiderTargetY = new float[count]
     raiderTargetZ = new float[count]
+    raiderCorpseX = new float[count]
+    raiderCorpseY = new float[count]
+    raiderCorpseZ = new float[count]
     raiderAbsentSec = new float[count]
     raiderCleared = new bool[count]
     raiderRescued = new bool[count]
@@ -404,6 +482,7 @@ Function InitRaiderTracking()
         float tx = doorX - 18.0
         float ty = doorY
         float tz = doorZ
+        bool clearAbsentDead = False
         if r != None
             float rx = r.GetPositionX()
             float ry = r.GetPositionY()
@@ -418,13 +497,22 @@ Function InitRaiderTracking()
                 tx = rx
                 ty = ry
                 tz = rz
+            elseif r.IsDead()
+                ; N2: Never invent doorX-18.0 for an already-dead raider outside Concord on late init (prevents corpse pileups).
+                tx = rx
+                ty = ry
+                tz = rz
+                clearAbsentDead = True
             endif
         endif
         raiderTargetX[i] = tx
         raiderTargetY[i] = ty
         raiderTargetZ[i] = tz
+        raiderCorpseX[i] = tx
+        raiderCorpseY[i] = ty
+        raiderCorpseZ[i] = tz
         raiderAbsentSec[i] = 0.0
-        raiderCleared[i] = False
+        raiderCleared[i] = clearAbsentDead
         raiderRescued[i] = False
         raiderEngaged[i] = False
         raiderArmed[i] = False
@@ -497,6 +585,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
     prestonScenePhase1 = False
     prestonPhase1At = 0.0
     prestonSceneChecks = 0
+    prestonSceneRestarts = 0
+    prestonPostSceneActive = False
+    ownPrestonSceneStop = False
+    prestonAttemptStartedAt = 0.0
     CancelTimer(3)
     EnsureActorTalkable(Preston)
     RegisterForRemoteEvent(Preston, "OnActivate")
@@ -514,6 +606,10 @@ Event Actor.OnPlayerLoadGame(Actor akSender)
             CheckConcordRaidersWfc01(Game.GetPlayer(), False)
         endif
         StartTimer(1.0, 1)
+    else
+        RegisterForMenuOpenCloseEvent("DialogueMenu")
+        RegisterPrestonSceneEvents()
+        CheckConcordRaidersWfc01(Game.GetPlayer(), False)
     endif
 EndEvent
 
@@ -641,7 +737,16 @@ Message Function ResolvePrestonMsg(int slot)
 EndFunction
 
 Function RunPrestonTalk(int stage, Message startMsg)
+    if !ShouldUseMessageBox()
+        Trace("preston messagebox suppressed reason=glob_off stage=" + stage)
+        return
+    endif
     if prestonTalkBoxOpen || startMsg == None || IsWarfareMode()
+        return
+    endif
+    ; A2.2: Never show MessageBox if native DialogueMenu is open (never both).
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened
+        Trace("preston messagebox suppressed reason=dialogue_menu_open stage=" + stage)
         return
     endif
     prestonTalkReloaded = False
@@ -691,20 +796,47 @@ Function RunPrestonTalk(int stage, Message startMsg)
     endwhile
     if !prestonTalkReloaded && mySession == talkSessionId
         prestonTalkBoxOpen = False
+        ; R11 Review Item #1: Clear fallback latch when MessageBox exits without advancing past stage 30 (< 35)
+        ; or after reaching completion (>= 200) so Preston is never locked out of subsequent activation.
+        int endSt = EffectiveStage()
+        if endSt < 35 || endSt >= 200
+            prestonFallbackActive = False
+        endif
     endif
 EndFunction
 
 Function FallbackPrestonToMessageBox(string reason)
+    if !ShouldUseMessageBox()
+        Trace("preston fallback suppressed reason=glob_off orig=" + reason)
+        return
+    endif
+    ; A2.2: Never open MessageBox if DialogueMenu already opened, fallback already latched, or talk already finished.
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        CancelTimer(3)
+        Trace("preston fallback suppressed reason=dialogue_active orig=" + reason)
+        return
+    endif
     prestonScenePending = False
     prestonScenePhase1 = False
     prestonPhase1At = 0.0
     CancelTimer(3)
-    ; C1: Always stop any playing/queued Preston scene BEFORE opening MessageBox fallback so both can never run.
+    ; A2.2 + C1: Latch prestonFallbackActive BEFORE scn.Stop() so any concurrent/late native greeting
+    ; firing OnBegin/OnPhaseBegin/OnMenuOpenCloseEvent immediately suppresses itself (never both).
+    prestonFallbackActive = True
     Scene scn = ResolvePrestonScene()
     if scn != None && scn.IsPlaying()
+        ownPrestonSceneStop = True
         scn.Stop()
     endif
-    prestonFallbackActive = True
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened
+        ; R11 Review Item #1: Clear fallback latch when yielding to a late-opened DialogueMenu so it never strands future talks.
+        prestonFallbackActive = False
+        Trace("preston fallback suppressed reason=late_dialogue_open orig=" + reason)
+        return
+    endif
     Trace("preston talk fallback=messagebox reason=" + reason)
     Message talkMsg = ResolvePrestonMsg(-1)
     if talkMsg != None
@@ -715,35 +847,144 @@ Function FallbackPrestonToMessageBox(string reason)
     endif
 EndFunction
 
+Function RestartOrFailPrestonScene(string reason, bool postMode)
+    if KeeperOnly || ShouldUseMessageBox()
+        return
+    endif
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        prestonAttemptStartedAt = 0.0
+        CancelTimer(3)
+        return
+    endif
+    int st = EffectiveStage()
+    if !postMode && (st != 30 || prestonTalkLogged)
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        prestonAttemptStartedAt = 0.0
+        CancelTimer(3)
+        return
+    endif
+    Scene scn = ResolveActivePrestonScene(postMode)
+    if scn == None
+        int usedRetries = prestonSceneRestarts
+        prestonScenePending = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        prestonSceneRestarts = 0
+        prestonPostSceneActive = False
+        prestonAttemptStartedAt = 0.0
+        CancelTimer(3)
+        EnsureActorTalkable(Preston)
+        Trace("preston talk ERROR scene_failed retries=" + usedRetries + " reason=" + reason + " actor_talkable=true")
+        return
+    endif
+    if prestonSceneRestarts < PrestonMaxSceneRestarts
+        prestonSceneRestarts += 1
+        prestonScenePending = False
+        if postMode
+            EnsureKeeperPrestonAlias()
+        else
+            EnsurePrestonAlias()
+        endif
+        RegisterPrestonSceneEvents()
+        EnsureActorTalkable(Preston)
+        if scn.IsPlaying()
+            ownPrestonSceneStop = True
+            scn.Stop()
+        endif
+        prestonPostSceneActive = postMode
+        prestonScenePending = True
+        prestonSceneMenuOpened = False
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        prestonAttemptStartedAt = Utility.GetCurrentRealTime()
+        prestonSceneChecks = 0
+        if !postMode
+            talkActivated = True
+            prestonUsedFallback = False
+            talkStartedAt = Utility.GetCurrentRealTime()
+        endif
+        scn.Start()
+        if !scn.IsPlaying()
+            scn.ForceStart()
+        endif
+        Trace("preston talk scene_restart retry=" + prestonSceneRestarts + "/" + PrestonMaxSceneRestarts + " reason=" + reason + " stage=" + st)
+        StartTimer(PrestonSceneCheckSeconds, 3)
+    else
+        int maxUsed = prestonSceneRestarts
+        prestonScenePending = False
+        if scn.IsPlaying()
+            ownPrestonSceneStop = True
+            scn.Stop()
+        endif
+        prestonScenePhase1 = False
+        prestonPhase1At = 0.0
+        prestonSceneRestarts = 0
+        prestonPostSceneActive = False
+        prestonAttemptStartedAt = 0.0
+        CancelTimer(3)
+        EnsureActorTalkable(Preston)
+        Trace("preston talk ERROR scene_failed retries=" + maxUsed + " reason=" + reason + " actor_talkable=true")
+    endif
+EndFunction
+
 Function CheckPrestonSceneOpen()
     if KeeperOnly || !prestonScenePending
         return
     endif
-    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonTalkLogged || EffectiveStage() != 30
+    int st = EffectiveStage()
+    bool stageValid = (prestonPostSceneActive && st >= 200) || (!prestonPostSceneActive && st == 30 && !prestonTalkLogged)
+    if prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonTalkBoxOpen || prestonFallbackActive || !stageValid
         prestonScenePending = False
         prestonScenePhase1 = False
         prestonPhase1At = 0.0
+        prestonAttemptStartedAt = 0.0
         return
     endif
     prestonSceneChecks += 1
+    float nowRt = Utility.GetCurrentRealTime()
+    if prestonAttemptStartedAt > 0.0 && nowRt < prestonAttemptStartedAt
+        prestonAttemptStartedAt = nowRt
+    endif
+    float attemptElapsed = PrestonSceneCheckSeconds
+    if prestonAttemptStartedAt > 0.0
+        attemptElapsed = nowRt - prestonAttemptStartedAt
+    endif
     bool phase1Elapsed = False
     if prestonScenePhase1
-        float nowRt = Utility.GetCurrentRealTime()
         if nowRt < prestonPhase1At
             prestonPhase1At = nowRt
         elseif (nowRt - prestonPhase1At) >= (PrestonSceneCheckSeconds - 0.05)
             phase1Elapsed = True
         endif
     endif
-    Scene scn = ResolvePrestonScene()
+    Scene scn = ResolveActivePrestonScene(prestonPostSceneActive)
     if scn == None || !scn.IsPlaying()
-        FallbackPrestonToMessageBox("scene_inactive")
-    elseif phase1Elapsed || prestonSceneChecks >= PrestonSceneMaxWaitChecks
+        if ShouldUseMessageBox()
+            FallbackPrestonToMessageBox("scene_inactive")
+        elseif attemptElapsed < (PrestonSceneCheckSeconds - 0.05)
+            StartTimer(PrestonSceneCheckSeconds - attemptElapsed, 3)
+        else
+            RestartOrFailPrestonScene("scene_inactive", prestonPostSceneActive)
+        endif
+    elseif (phase1Elapsed || prestonSceneChecks >= PrestonSceneMaxWaitChecks) && attemptElapsed >= (PrestonSceneCheckSeconds - 0.05)
         prestonScenePending = False
         prestonScenePhase1 = False
         prestonPhase1At = 0.0
-        scn.Stop()
-        FallbackPrestonToMessageBox("dialogue_menu_timeout")
+        if prestonDialogueMenuOpen || prestonSceneMenuOpened
+            return
+        endif
+        if ShouldUseMessageBox()
+            FallbackPrestonToMessageBox("dialogue_menu_timeout")
+        else
+            RestartOrFailPrestonScene("dialogue_menu_timeout", prestonPostSceneActive)
+        endif
+    elseif phase1Elapsed || prestonSceneChecks >= PrestonSceneMaxWaitChecks
+        StartTimer(PrestonSceneCheckSeconds - attemptElapsed, 3)
     else
         StartTimer(PrestonSceneCheckSeconds, 3)
     endif
@@ -755,21 +996,63 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
     endif
     prestonDialogueMenuOpen = abOpening
     Scene scn = ResolvePrestonScene()
+    Scene postScn = ResolvePrestonPostScene()
+    bool primaryPlaying = scn != None && scn.IsPlaying()
+    bool postPlaying = postScn != None && postScn.IsPlaying()
     if abOpening
-        if prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() >= 35
-            if scn != None && scn.IsPlaying()
+        int st = EffectiveStage()
+        if prestonTalkBoxOpen || prestonFallbackActive
+            ; A2.2: Suppress any late native greeting scene unconditionally when MessageBox fallback is active.
+            if primaryPlaying
+                ownPrestonSceneStop = True
                 scn.Stop()
-                Trace("preston scene suppressed reason=single_talk stage=" + EffectiveStage())
+                Trace("preston scene suppressed reason=single_talk stage=" + st)
+            endif
+            if postPlaying
+                ownPrestonSceneStop = True
+                postScn.Stop()
+                Trace("preston scene suppressed reason=single_talk stage=" + st)
             endif
             return
         endif
-        if prestonScenePending || talkActivated || (scn != None && scn.IsPlaying())
+        if st >= 200
+            if primaryPlaying
+                ownPrestonSceneStop = True
+                scn.Stop()
+                Trace("preston scene suppressed reason=single_talk stage=" + st)
+            endif
+            if prestonPostSceneActive || postPlaying
+                prestonPostSceneActive = True
+                prestonSceneMenuOpened = True
+                prestonScenePending = False
+                prestonScenePhase1 = False
+                prestonPhase1At = 0.0
+                prestonSceneRestarts = 0
+                prestonAttemptStartedAt = 0.0
+                CancelTimer(3)
+                Trace("preston dialogue menu opened mode=post stage=" + st)
+            endif
+            return
+        endif
+        if prestonTalkLogged || st >= 35
+            if scn != None
+                if scn.IsPlaying()
+                    ownPrestonSceneStop = True
+                endif
+                scn.Stop()
+                Trace("preston scene suppressed reason=single_talk stage=" + st)
+            endif
+            return
+        endif
+        if prestonScenePending || talkActivated || primaryPlaying
             talkActivated = True
             prestonUsedFallback = False
             prestonSceneMenuOpened = True
             prestonScenePending = False
             prestonScenePhase1 = False
             prestonPhase1At = 0.0
+            prestonSceneRestarts = 0
+            prestonAttemptStartedAt = 0.0
             CancelTimer(3)
             Trace("preston dialogue menu opened")
         endif
@@ -780,36 +1063,100 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 Event Scene.OnBegin(Scene akSender)
+    if KeeperOnly
+        return
+    endif
     Scene scn = ResolvePrestonScene()
-    if !KeeperOnly && scn != None && akSender == scn
-        ; C1: Never allow a queued DEVT scene to open if MessageBox fallback already ran or talk already finished.
+    Scene postScn = ResolvePrestonPostScene()
+    if scn != None && akSender == scn
+        ; C1 + A2.2: Never allow a queued/late DEVT scene to run if MessageBox fallback already latched or talk finished.
         if prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() >= 35 || ShouldUseMessageBox()
+            if akSender.IsPlaying()
+                ownPrestonSceneStop = True
+            endif
             akSender.Stop()
             Trace("preston scene suppressed reason=single_talk stage=" + EffectiveStage())
             return
         endif
+        prestonPostSceneActive = False
         talkActivated = True
         prestonUsedFallback = False
         if talkStartedAt <= 0.0
             talkStartedAt = Utility.GetCurrentRealTime()
         endif
         if EffectiveStage() == 30 && !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
+            ownPrestonSceneStop = False
             prestonScenePending = True
             prestonScenePhase1 = False
             prestonPhase1At = 0.0
+            prestonAttemptStartedAt = Utility.GetCurrentRealTime()
             prestonSceneChecks = 0
             Trace("preston scene talk requested scene=" + scn + " stage=30")
             StartTimer(PrestonSceneCheckSeconds, 3)
         endif
         Trace("preston talk scene started stage=" + EffectiveStage())
+    elseif postScn != None && akSender == postScn
+        int st = EffectiveStage()
+        if prestonTalkBoxOpen || prestonFallbackActive || st < 200 || ShouldUseMessageBox()
+            if akSender.IsPlaying()
+                ownPrestonSceneStop = True
+            endif
+            akSender.Stop()
+            Trace("preston scene suppressed reason=single_talk stage=" + st)
+            return
+        endif
+        prestonPostSceneActive = True
+        if !prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
+            ownPrestonSceneStop = False
+            prestonScenePending = True
+            prestonScenePhase1 = False
+            prestonPhase1At = 0.0
+            prestonAttemptStartedAt = Utility.GetCurrentRealTime()
+            prestonSceneChecks = 0
+            Trace("preston scene talk requested scene=" + postScn + " stage=" + st + " mode=post")
+            StartTimer(PrestonSceneCheckSeconds, 3)
+        endif
+        Trace("preston talk scene started stage=" + st + " mode=post")
     endif
 EndEvent
 
 Event Scene.OnPhaseBegin(Scene akSender, int auiPhaseIndex)
+    if KeeperOnly
+        return
+    endif
     Scene scn = ResolvePrestonScene()
-    if !KeeperOnly && scn != None && akSender == scn
+    Scene postScn = ResolvePrestonPostScene()
+    if scn != None && akSender == scn
+        ; A2.2: Immediately stop any late native phase advance if fallback/box already owns the talk (never both).
+        if prestonTalkBoxOpen || prestonFallbackActive || prestonTalkLogged || EffectiveStage() >= 35
+            if akSender.IsPlaying()
+                ownPrestonSceneStop = True
+            endif
+            akSender.Stop()
+            Trace("preston scene suppressed reason=single_talk stage=" + EffectiveStage())
+            return
+        endif
         Trace("preston talk scene phase=" + auiPhaseIndex + " stage=" + EffectiveStage())
-        if auiPhaseIndex == 1
+        if auiPhaseIndex >= 1
+            prestonScenePhase1 = True
+            prestonPhase1At = Utility.GetCurrentRealTime()
+            if prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
+                CancelTimer(3)
+                StartTimer(PrestonSceneCheckSeconds, 3)
+            endif
+        endif
+    elseif postScn != None && akSender == postScn
+        int st = EffectiveStage()
+        if prestonTalkBoxOpen || prestonFallbackActive || st < 200 || ShouldUseMessageBox()
+            if akSender.IsPlaying()
+                ownPrestonSceneStop = True
+            endif
+            akSender.Stop()
+            Trace("preston scene suppressed reason=single_talk stage=" + st)
+            return
+        endif
+        Trace("preston talk scene phase=" + auiPhaseIndex + " stage=" + st + " mode=post")
+        if auiPhaseIndex >= 1
             prestonScenePhase1 = True
             prestonPhase1At = Utility.GetCurrentRealTime()
             if prestonScenePending && !prestonSceneMenuOpened && !prestonDialogueMenuOpen
@@ -825,28 +1172,44 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
         return
     endif
     if akSender == Preston && akActionRef == Game.GetPlayer()
-        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonScenePending
+        if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonScenePending
             return
         endif
+        ; R11 Review Item #1: Never let stale prestonFallbackActive alone block OnActivate when no box/menu/scene is active.
+        if prestonFallbackActive
+            prestonFallbackActive = False
+        endif
+        prestonSceneRestarts = 0
         int stage = EffectiveStage()
         Trace("preston activated at stage " + stage)
         if stage < 20
             FoundPreston("activated")                    ; the next check starts the fight
         elseif stage == 30
             Scene scn = ResolvePrestonSceneLogged()
+            ; A2.2: Re-check after ResolvePrestonSceneLogged() so a concurrent native DEVT greeting that already
+            ; opened DialogueMenu (observed in 2g run3 at rt=343.486 vs 343.662) is never overwritten or re-armed.
+            if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive || prestonTalkLogged || EffectiveStage() != 30
+                return
+            endif
             if ShouldUseMessageBox()
                 FallbackPrestonToMessageBox("glob")
             elseif scn != None
                 EnsurePrestonAlias()
                 RegisterPrestonSceneEvents()
+                if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive
+                    return
+                endif
                 prestonFallbackActive = False
+                prestonPostSceneActive = False
                 talkActivated = True
                 prestonUsedFallback = False
                 talkStartedAt = Utility.GetCurrentRealTime()
+                ownPrestonSceneStop = False
                 prestonScenePending = True
                 prestonSceneMenuOpened = False
                 prestonScenePhase1 = False
                 prestonPhase1At = 0.0
+                prestonAttemptStartedAt = Utility.GetCurrentRealTime()
                 prestonSceneChecks = 0
                 if !scn.IsPlaying()
                     scn.Start()
@@ -858,20 +1221,60 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
                 Trace("preston scene talk requested scene=" + scn + " stage=30")
                 StartTimer(PrestonSceneCheckSeconds, 3)
             else
-                FallbackPrestonToMessageBox("no_scene")
+                RestartOrFailPrestonScene("no_scene", False)
             endif
         elseif stage >= 200
-            Message postMsg = ResolvePrestonMsg(-1)
-            if postMsg != None
-                RunPrestonTalk(stage, postMsg)
+            if ShouldUseMessageBox()
+                Message postMsg = ResolvePrestonMsg(-1)
+                if postMsg != None
+                    RunPrestonTalk(stage, postMsg)
+                endif
+            else
+                Scene postScn = ResolvePrestonPostScene()
+                if postScn != None
+                    EnsureKeeperPrestonAlias()
+                    RegisterPrestonSceneEvents()
+                    EnsureActorTalkable(Preston)
+                    if prestonTalkBoxOpen || prestonDialogueMenuOpen || prestonSceneMenuOpened || prestonFallbackActive
+                        return
+                    endif
+                    prestonFallbackActive = False
+                    prestonPostSceneActive = True
+                    ownPrestonSceneStop = False
+                    prestonScenePending = True
+                    prestonSceneMenuOpened = False
+                    prestonScenePhase1 = False
+                    prestonPhase1At = 0.0
+                    prestonAttemptStartedAt = Utility.GetCurrentRealTime()
+                    prestonSceneChecks = 0
+                    if !postScn.IsPlaying()
+                        postScn.Start()
+                        if !postScn.IsPlaying()
+                            postScn.ForceStart()
+                        endif
+                    endif
+                    Trace("preston talk scene triggered stage=" + stage + " mode=post")
+                    Trace("preston scene talk requested scene=" + postScn + " stage=" + stage + " mode=post")
+                    StartTimer(PrestonSceneCheckSeconds, 3)
+                else
+                    RestartOrFailPrestonScene("no_post_scene", True)
+                endif
             endif
         endif
     endif
 EndEvent
 
 Event Scene.OnEnd(Scene akSender)
+    if KeeperOnly
+        return
+    endif
     Scene scn = ResolvePrestonScene()
-    if !KeeperOnly && scn != None && akSender == scn
+    Scene postScn = ResolvePrestonPostScene()
+    if scn != None && akSender == scn
+        if ownPrestonSceneStop
+            ownPrestonSceneStop = False
+            return
+        endif
         int st = EffectiveStage()
         bool endInfoDone = GetStageDone(35) || st == 35 || GetStage() == 35
         Trace("preston talk scene ended stage=" + st + " end_info=" + endInfoDone)
@@ -880,6 +1283,7 @@ Event Scene.OnEnd(Scene akSender)
             prestonSceneMenuOpened = False
             prestonScenePhase1 = False
             prestonPhase1At = 0.0
+            prestonAttemptStartedAt = 0.0
             CancelTimer(3)
             if applied < 35
                 Apply(35, "info")
@@ -890,23 +1294,71 @@ Event Scene.OnEnd(Scene akSender)
                 Trace("complete stage=" + EffectiveStage())
             endif
         elseif st == 30 && !prestonTalkLogged && !prestonFallbackActive
-            talkFailures += 1
-            talkActivated = False
-            talkStartedAt = 0.0
-            Trace("preston talk retry n=" + talkFailures + " reason=scene_incomplete")
             if prestonScenePending && !prestonSceneMenuOpened
-                FallbackPrestonToMessageBox("scene_incomplete")
+                ; F1: Never count restart OnEnds into talkFailures (prevents stage 40 by=fallback skip),
+                ; and count a retry ONLY after a full PrestonSceneCheckSeconds window.
+                if ShouldUseMessageBox()
+                    FallbackPrestonToMessageBox("scene_incomplete")
+                else
+                    float nowEnd = Utility.GetCurrentRealTime()
+                    if prestonAttemptStartedAt > 0.0 && nowEnd < prestonAttemptStartedAt
+                        prestonAttemptStartedAt = nowEnd
+                    endif
+                    float attElapsed = nowEnd - prestonAttemptStartedAt
+                    if prestonAttemptStartedAt > 0.0 && attElapsed < (PrestonSceneCheckSeconds - 0.05)
+                        CancelTimer(3)
+                        StartTimer(PrestonSceneCheckSeconds - attElapsed, 3)
+                    else
+                        RestartOrFailPrestonScene("scene_incomplete", False)
+                    endif
+                endif
             else
+                talkFailures += 1
+                talkActivated = False
+                talkStartedAt = 0.0
+                Trace("preston talk retry n=" + talkFailures + " reason=scene_incomplete")
                 prestonScenePending = False
                 prestonSceneMenuOpened = False
                 prestonScenePhase1 = False
                 prestonPhase1At = 0.0
+                prestonAttemptStartedAt = 0.0
+                EnsureActorTalkable(Preston)
             endif
         else
             prestonScenePending = False
             prestonSceneMenuOpened = False
             prestonScenePhase1 = False
             prestonPhase1At = 0.0
+            prestonAttemptStartedAt = 0.0
+        endif
+    elseif postScn != None && akSender == postScn
+        if ownPrestonSceneStop
+            ownPrestonSceneStop = False
+            return
+        endif
+        int st = EffectiveStage()
+        Trace("preston talk scene ended stage=" + st + " mode=post")
+        if st >= 200 && prestonScenePending && !prestonSceneMenuOpened && !prestonFallbackActive && !ShouldUseMessageBox()
+            float nowPost = Utility.GetCurrentRealTime()
+            if prestonAttemptStartedAt > 0.0 && nowPost < prestonAttemptStartedAt
+                prestonAttemptStartedAt = nowPost
+            endif
+            float postElapsed = nowPost - prestonAttemptStartedAt
+            if prestonAttemptStartedAt > 0.0 && postElapsed < (PrestonSceneCheckSeconds - 0.05)
+                CancelTimer(3)
+                StartTimer(PrestonSceneCheckSeconds - postElapsed, 3)
+            else
+                RestartOrFailPrestonScene("scene_incomplete", True)
+            endif
+        else
+            prestonScenePending = False
+            prestonSceneMenuOpened = False
+            prestonScenePhase1 = False
+            prestonPhase1At = 0.0
+            prestonAttemptStartedAt = 0.0
+            prestonPostSceneActive = False
+            CancelTimer(3)
+            EnsureActorTalkable(Preston)
         endif
     endif
 EndEvent
@@ -942,6 +1394,7 @@ bool Function TalkCompleteReady(int stage, float dp)
         talkNearSec = 0.0
         if talkStartedAt > 0.0 && (nowRt - talkStartedAt) > TalkSceneTimeout
             talkFailures += 1
+            ownPrestonSceneStop = True
             scn.Stop()
             talkActivated = False
             talkStartedAt = 0.0
@@ -989,12 +1442,30 @@ Function FoundPreston(string how)
     endif
 EndFunction
 
+float Function ComputeEffectiveWeaponDamage(Actor r, float recordDmg)
+{R13 E3: Compute effective weapon damage from the VMAD-bound record damage * Actor AttackDamageMult when resolved else 1.0.}
+    float mult = 1.0
+    if r != None && AttackDamageMult != None
+        float av = r.GetValue(AttackDamageMult)
+        if av > 0.0
+            mult = av
+        endif
+    endif
+    return recordDmg * mult
+EndFunction
+
 Function ArmRaiderForCombat(Actor r, int idx)
-{C3: Ensure each Concord raider is unrestrained, aggressive, brave, carries Coachman + AmmoShotshell, and re-evaluates its combat package.}
+{C3 + R11 D3 + R13 E3 + fix4: Ensure each Concord raider is unrestrained, aggressive, brave, unequips only wrong
+ weapons (keeping FO4 0x0988 outfits intact!), equips softened non-playable RaiderWeapon (0x97B, 6.0 dmg) +
+ deterministic AmmoShotshell=60, and logs effective damage.}
     if r == None || r.IsDead()
         return
     endif
     r.SetRestrained(False)
+    Weapon curW = r.GetEquippedWeapon()
+    if curW != None && curW != RaiderWeapon && curW != RaiderSidearm
+        r.UnequipItem(curW, False, True)
+    endif
     ActorValue aggrAv = Game.GetAggressionAV()
     if aggrAv != None
         r.SetValue(aggrAv, 2.0)
@@ -1003,8 +1474,14 @@ Function ArmRaiderForCombat(Actor r, int idx)
     if confAv != None
         r.SetValue(confAv, 4.0)
     endif
-    if RaiderAmmo != None && r.GetItemCount(RaiderAmmo) < 12
-        r.AddItem(RaiderAmmo, 60, True)
+    int targetShells = 60
+    if RaiderAmmo != None
+        int curShells = r.GetItemCount(RaiderAmmo)
+        if curShells < targetShells
+            r.AddItem(RaiderAmmo, targetShells - curShells, True)
+        elseif curShells > targetShells
+            r.RemoveItem(RaiderAmmo, curShells - targetShells, True)
+        endif
     endif
     if RaiderWeapon != None
         if r.GetItemCount(RaiderWeapon) < 1
@@ -1018,7 +1495,48 @@ Function ArmRaiderForCombat(Actor r, int idx)
     if RaiderAmmo != None
         shells = r.GetItemCount(RaiderAmmo)
     endif
-    Trace("arm raider " + idx + " ammo=" + shells)
+    Weapon eqPrimary = r.GetEquippedWeapon()
+    bool eqMatch = (RaiderWeapon != None && eqPrimary == RaiderWeapon)
+    float effPrimaryDmg = ComputeEffectiveWeaponDamage(r, RaiderPrimaryRecordDamage)
+    Trace("arm raider " + idx + " ammo=" + shells + " weapon=" + eqPrimary + " eq_match=" + eqMatch + " dmg=" + RaiderPrimaryRecordDamage + " eff_dmg=" + effPrimaryDmg + " playable=false standin=true")
+EndFunction
+
+Function EquipBalancedRaiderSidearm(Actor r, int idx)
+{R11 Part 3 E3 + R13 E3 + fix4: Switch armed Concord street raiders from softened primary (0x097B) to VMAD-bound
+ FO4SF_ConcordRaiderSidearm (WEAP 0x097A, 1.5 dmg, ObjectTemplates+AttachParentSlots preserved) + deterministic 36 Ammo777mm (0x04AD3E).
+ Adds & equips RaiderSidearm, strips RaiderWeapon + RaiderAmmo FIRST, clamps RaiderSidearmAmmo=36, and logs effective damage.}
+    if r == None || r.IsDead() || RaiderSidearm == None || RaiderSidearmAmmo == None
+        return
+    endif
+    if r.GetItemCount(RaiderSidearm) < 1
+        r.AddItem(RaiderSidearm, 1, True)
+    endif
+    if RaiderWeapon != None
+        r.UnequipItem(RaiderWeapon, False, True)
+        int curCoachman = r.GetItemCount(RaiderWeapon)
+        if curCoachman > 0
+            r.RemoveItem(RaiderWeapon, curCoachman, True)
+        endif
+    endif
+    if RaiderAmmo != None
+        int curShells = r.GetItemCount(RaiderAmmo)
+        if curShells > 0
+            r.RemoveItem(RaiderAmmo, curShells, True)
+        endif
+    endif
+    r.EquipItem(RaiderSidearm, True, True)
+    int targetSidearmAmmo = 36
+    int curSidearmAmmo = r.GetItemCount(RaiderSidearmAmmo)
+    if curSidearmAmmo < targetSidearmAmmo
+        r.AddItem(RaiderSidearmAmmo, targetSidearmAmmo - curSidearmAmmo, True)
+    elseif curSidearmAmmo > targetSidearmAmmo
+        r.RemoveItem(RaiderSidearmAmmo, curSidearmAmmo - targetSidearmAmmo, True)
+    endif
+    r.EvaluatePackage()
+    Weapon eqSidearm = r.GetEquippedWeapon()
+    bool eqMatch = (eqSidearm == RaiderSidearm)
+    float effSidearmDmg = ComputeEffectiveWeaponDamage(r, RaiderSidearmRecordDamage)
+    Trace("arm raider " + idx + " sidearm=eon sidearm_ammo=" + r.GetItemCount(RaiderSidearmAmmo) + " weapon=" + eqSidearm + " eq_match=" + eqMatch + " dmg=" + RaiderSidearmRecordDamage + " eff_dmg=" + effSidearmDmg + " playable=false standin=true")
 EndFunction
 
 float Function GetRaiderHealth(Actor r)
@@ -1050,10 +1568,11 @@ Function WriteOffRaider(Actor r, int idx, string reason, float elapsed)
 EndFunction
 
 Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
-{WFC-01 anti-stall at stage 20: rescues living raiders that fell below terrain (z < targetZ - 8 m) or drifted far
- (> 140 m from their Concord street spot) while the player is within 150 m of the museum door, and writes off (stops
- combat + disables) any living raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 s within 100 m of
- the Concord door or stays loaded within 2 m with no damage for 60 s after a rescue.}
+{WFC-01 anti-stall & R11 Part 3 E5: rescues living raiders AND non-cleared dead raiders that fell below terrain
+ (z < targetZ - 8 m), drifted far (> 140 m from their Concord street/corpse spot, e.g. 2.9 km away after reload),
+ or loaded into another world while the player is within 150 m of the museum door; and writes off (stops combat +
+ disables) any living raider that remains absent/unloaded (> 250 m or !Is3DLoaded) for > 60 s within 100 m of the
+ Concord door or stays loaded within 2 m with no damage for 60 s after a rescue.}
     if player == None || player.IsInInterior() || !IsCommonwealthExterior(player)
         return
     endif
@@ -1072,32 +1591,51 @@ Function CheckConcordRaidersWfc01(Actor player, bool advanceClock)
     int i = 0
     while i < Raiders.Length
         Actor r = Raiders[i]
-        if r == None || r.IsDead() || raiderCleared[i]
+        if r == None || raiderCleared[i] || r.IsDisabled()
             raiderAbsentSec[i] = 0.0
             raiderRescueSec[i] = 0.0
         else
+            bool deadRaider = r.IsDead()
             float tx = raiderTargetX[i]
             float ty = raiderTargetY[i]
             float tz = raiderTargetZ[i]
+            float cx = tx
+            float cy = ty
+            float cz = tz
+            if deadRaider
+                raiderAbsentSec[i] = 0.0
+                raiderRescueSec[i] = 0.0
+                cx = raiderCorpseX[i]
+                cy = raiderCorpseY[i]
+                cz = raiderCorpseZ[i]
+            endif
             if doorDist < Wfc01CheckRadius
                 float rz = r.GetPositionZ()
-                float drift = SpotOff(r, tx, ty, tz)
+                float drift = SpotOff(r, cx, cy, cz)
                 WorldSpace rws = r.GetWorldSpace()
                 bool wrongWorld = r.IsInInterior() || rws == None || rws != pws
-                if (wrongWorld || rz < tz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift) && IsPlayerStableAt(player, px, py, pz)
-                    r.MoveTo(player, tx - px, ty - py, tz - pz, True, False)
-                    r.SetPosition(tx, ty, tz)
-                    r.EvaluatePackage()
-                    raiderRescued[i] = True
-                    raiderRescueSec[i] = 0.0
-                    raiderRescueX[i] = r.GetPositionX()
-                    raiderRescueY[i] = r.GetPositionY()
-                    raiderRescueZ[i] = r.GetPositionZ()
-                    raiderRescueHp[i] = GetRaiderHealth(r)
-                    Trace("wfc01 rescue raider=" + i + " z=" + rz + " target_z=" + tz + " drift=" + drift)
+                if !wrongWorld && rz >= tz - Wfc01SubterraneanDrop && SpotOff(r, tx, ty, tz) <= Wfc01MaxDrift
+                    raiderCorpseX[i] = r.GetPositionX()
+                    raiderCorpseY[i] = r.GetPositionY()
+                    raiderCorpseZ[i] = rz
+                elseif (wrongWorld || rz < cz - Wfc01SubterraneanDrop || drift > Wfc01MaxDrift) && IsPlayerStableAt(player, px, py, pz)
+                    r.MoveTo(player, cx - px, cy - py, cz - pz, True, False)
+                    r.SetPosition(cx, cy, cz)
+                    if deadRaider
+                        Trace("wfc01 rescue_dead raider=" + i + " z=" + rz + " target_z=" + cz + " drift=" + drift)
+                    else
+                        r.EvaluatePackage()
+                        raiderRescued[i] = True
+                        raiderRescueSec[i] = 0.0
+                        raiderRescueX[i] = r.GetPositionX()
+                        raiderRescueY[i] = r.GetPositionY()
+                        raiderRescueZ[i] = r.GetPositionZ()
+                        raiderRescueHp[i] = GetRaiderHealth(r)
+                        Trace("wfc01 rescue raider=" + i + " z=" + rz + " target_z=" + cz + " drift=" + drift)
+                    endif
                 endif
             endif
-            if advanceClock
+            if !deadRaider && advanceClock
                 float distToPlayer = player.GetDistance(r)
                 if doorDist <= Wfc01DoorRadius && (!r.Is3DLoaded() || distToPlayer > Wfc01AbsentDistance)
                     raiderAbsentSec[i] = raiderAbsentSec[i] + 1.0
@@ -1216,7 +1754,7 @@ Event OnTimer(int aiTimerID)
     endif
     if stage == 20
         CheckConcordRaidersWfc01(player, True)
-    elseif stage < 20
+    else
         CheckConcordRaidersWfc01(player, False)
     endif
     bool everyone = prestonFound || stage >= 20          ; once the fight is on, no raider stands by
@@ -1236,6 +1774,7 @@ Event OnTimer(int aiTimerID)
             endif
             if !raiderArmed[i] && stage < 30 && (everyone || d < EngageRadius) && r.Is3DLoaded()
                 ArmRaiderForCombat(r, i)
+                EquipBalancedRaiderSidearm(r, i)
             endif
             if (r.GetCombatState() == 1 && raiderEngaged[i]) || (raiderEngaged[i] && nowCombatRt >= raiderStartCombatAt[i] && (nowCombatRt - raiderStartCombatAt[i]) < 10.0)
                 fighting = true
@@ -1403,6 +1942,10 @@ Function KeepCodsworth()
     endif
     if (Codsworth != None && (codsworthFails < 10 || codsworthHolds > 0)) || (KeeperOnly && (prestonFails < 10 || prestonHolds > 0))
         StartTimer(CodsworthCheck, 2)
+    elseif KeeperOnly
+        ; R11 A2.4: Keep KeeperOnly Timer 2 alive for CheckA4/A7/A7cdProximityStarts even if both
+        ; Codsworth and Preston placement budgets reach 10 with zero holds.
+        StartTimer(CodsworthCheck, 2)
     endif
 EndFunction
 
@@ -1531,7 +2074,7 @@ Function CheckA7cdProximityStarts(Actor player)
 EndFunction
 
 Function KeepPreston(Actor player)
-{The keeper keeps Preston at his merged spot after the mission too.}
+{The keeper keeps Preston at his merged spot after the mission too, and preserves dead Concord raiders after reload (E5).}
     ReleaseInFight("keeper")
     if prestonFails < 10
         if PlacePreston(player, "keeper")

@@ -58,7 +58,7 @@ FO4SF_NEWGAME rt=<rt> hold-off pass 2 stopped=<stopped> of <total>
 FO4SF_NEWGAME rt=<rt> stage 10 by=Trigger
 FO4SF_NEWGAME rt=<rt> pod settle ok=true pos=<x> <y> <z> dx=<dx> dy=<dy> drop=<drop> target=<tx> <ty> <tz> heading=<h> loaded=true cell=<cell> world=<world> sample_start=<t0> sample_end=<t1>
 FO4SF_NEWGAME rt=<rt> stage 20 by=scene
-FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>
+FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<equipped>
 FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true
 FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>
 FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console

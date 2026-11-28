@@ -217,7 +217,7 @@ Per the owner's 20 November 2026 direction (`gemini-round7-prompt-20261120.md` l
 | **Environmental Hazards & Traps (Glow Rads, Gecko Coolant, Toxic Caves)** | `FO4SFRads.esm` `FO4SF_RadsHazard` (`0x828`), `FO4SF_IrradiatedWater` (`0x82B`), and `FO4SF_RadsEmitter` (`0x82A`). | Starfield `ENV_PoolHazard_Radiation` templates, steam/gas vents, and mine/tripwire activator primitives. | Zero required. |
 | **Weapons, Armor & Props** | `FNV` + `FO3` + `FO4` classic weapon/armor/junk/furniture sets (10mm, `.223`, Plasma Rifle, `T-51b`, Combat Armor, Leather Armor, Metal Armor). | Starfield neutral industrial crates, lockers, terminals (`ControlConsoleTemplate` `0x1CCAC2`), and crafting stations (`WorkbenchIndustrial` `0x1F50AD`). | Minimal: iconic late-game uniques only if not already covered by FNV/FO4 assets. |
 
-*(Policy boundary: Per `docs/research/framework/findings/multi-game-scope.md` and `docs/research/core-fit-by-title.md`, `Fallout 76` online assets are never read or converted by the pipeline unless an explicit `REL-60` decision changes policy; reuse draws strictly from the user's owned single-player `FO4`, `FO3`, `FNV`, and `Starfield` installs.)*
+*(Policy boundary: Owner cleared offline `Fallout 76` conversion on 23 Nov 2026 — "Yes we will convert 76", `#32` comment `7094787759` — superseding the old `REL-60` hold: `FO76` assets and conversions stay strictly local and out of Git, nuke launching and server boss fights stay on the wait list, offline missions are rebuilt from `SeventySix.esm` quest records, Claude (PC) runs the asset conversion separately, and nothing of `FO76` is added to Round 11. Single-player `FO4`, `FO3`, `FNV`, and `Starfield` reuse likewise draws strictly from the user's own local installs.)*
 
 ---
 

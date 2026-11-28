@@ -6,10 +6,10 @@
 //   write <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> <points.json> <out dir> [--plugin FO4SFMission.esm]
 //         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
 //         [--codsworth-model <mesh under Meshes>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
-//         [--preston-voice <preston_voice.json>]
+//         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>]
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
 //         [--codsworth-model <mesh>] [--codsworth-voice <voice.json>] [--codsworth-mq-voice <mq_voice.json>]
-//         [--preston-voice <preston_voice.json>]
+//         [--preston-voice <preston_voice.json>] [--codsworth-race-framing <0|1>]
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //   quests <Starfield.esm> [faction regex]
 //   infos <Starfield.esm> <regex | wem:hex,hex...>
@@ -46,14 +46,16 @@ try
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
                                                        Mission.ArgOrNull(args, "--preston-voice"),
-                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir"),
+                                                       Mission.BoolFlag(args, "--codsworth-race-framing", false)),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"),
                                                        !args.Contains("--no-codsworth"),
                                                        Mission.ArgOrNull(args, "--codsworth-model"),
                                                        Mission.ArgOrNull(args, "--codsworth-voice"),
                                                        Mission.ArgOrNull(args, "--codsworth-mq-voice"),
                                                        Mission.ArgOrNull(args, "--preston-voice"),
-                                                       Mission.ArgOrNull(args, "--actor-looks-dir")),
+                                                       Mission.ArgOrNull(args, "--actor-looks-dir"),
+                                                       Mission.BoolFlag(args, "--codsworth-race-framing", false)),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -88,6 +90,14 @@ static class Mission
     public const uint SfRaiderWeaponId = 0x26D96B, SfRaiderAmmoId = 0x2B4AFB;
     public const string SfRaiderWeaponEdid = "Coachman", SfRaiderAmmoEdid = "AmmoShotshell";
     public const int RaiderAmmoCount = 60;
+    // R11 D3: Balanced Starfield stand-in sidearm (Eon 10 dmg + Ammo777mm x36 vs Coachman 52 dmg) so a cover-using
+    // Level-1 (205 HP) player survives Concord without god mode until A4/A5 replace the stand-in fight.
+    public const uint SfRaiderSidearmId = 0x0476C4, SfRaiderSidearmAmmoId = 0x04AD3E;
+    public const string SfRaiderSidearmEdid = "Eon", SfRaiderSidearmAmmoEdid = "Ammo777mm";
+    public const int RaiderSidearmAmmoCount = 36;
+    // R11 D1: ModelARace (Vasco) reference for standing robot dialogue framing metadata on FO4SF_CodsworthRace.
+    public const uint SfModelARaceId = 0x005629;
+    public const string SfModelARaceEdid = "ModelARace";
     public const float MergeOffsetX = -1200.0f, MergeOffsetY = -2700.0f;
 
     // FO4TerrainCore.esm Sanctuary workbench (Fallout4.esm 0250FE -> base ACTI 0x0A2ECD, placed REFR 0x005C50)
@@ -166,7 +176,39 @@ static class Mission
                         PrestonReply2MsgEdid = "FO4SF_Min00_PrestonReply2Msg";
     public const uint MissionTalkUseMessageBoxGlobId = 0x979;
     public const string MissionTalkUseMessageBoxGlobEdid = "FO4SF_MissionTalkUseMessageBox";
+    // R11/R13 Part 3 E3 + fix4: softened Concord Raider sidearm (1.5 dmg Eon, AmmoType=Ammo777mm, AmmoList cleared -> exact 36 rounds,
+    // ObjectTemplates+AttachParentSlots intact so receivers/barrels/ProjectileNodes render & fire) and softened Concord Raider primary
+    // (6.0 dmg x 1 projectile Coachman, AmmoType=AmmoShotshell, AmmoList cleared -> exact 60 rounds, ObjectTemplates+AttachParentSlots intact).
+    public const uint ConcordRaiderSidearmWeapId = 0x97A;
+    public const string ConcordRaiderSidearmWeapEdid = "FO4SF_ConcordRaiderSidearm";
+    public const float ConcordRaiderSidearmDamage = 1.5f;
+    public const byte ConcordRaiderSidearmProjectiles = 1;
+    public const uint ConcordRaiderPrimaryWeapId = 0x97B;
+    public const string ConcordRaiderPrimaryWeapEdid = "FO4SF_ConcordRaiderPrimary";
+    public const float ConcordRaiderPrimaryDamage = 6.0f;
+    public const byte ConcordRaiderPrimaryProjectiles = 1;
+
+    // R11 Part 3: Post-mission repeat Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
+    // Collision-free slots 0x990..0x9EB (FalloutActorLooks uses 0x980..0x98A; A4/A7/A7cd use 0xA00..0xB56; #853 uses 0xB80..0xB8B).
+    public const uint KeeperPrestonAlias = 0, KeeperCodsworthAlias = 1;
+    public const uint PrestonPostTalkSceneId = 0x990, PrestonPostGreetTopicId = 0x991, PrestonPostGreetInfoId = 0x992;
+    public const string PrestonPostTalkSceneEdid = "FO4SF_PrestonPostScene",
+                        PrestonPostGreetTopicEdid = "FO4SF_PrestonPostGreetTopic",
+                        PrestonPostGreetInfoEdid = "FO4SF_PrestonPostGreetInfo";
+    public const uint FirstPrestonPostChoiceTopicId = 0x9A0, FirstPrestonPostChoiceInfoId = 0x9A8;
+    public const uint FirstPrestonPostReplyTopicId = 0x9B0, FirstPrestonPostReplyInfoId = 0x9B8;
+
+    public const uint CodsworthPostSceneId = 0x9C0, CodsworthPostGreetTopicId = 0x9C1, CodsworthPostGreetInfoId = 0x9C2;
+    public const string CodsworthPostSceneEdid = "FO4SF_CodsworthPostScene",
+                        CodsworthPostGreetTopicEdid = "FO4SF_CodsworthPostGreetTopic",
+                        CodsworthPostGreetInfoEdid = "FO4SF_CodsworthPostGreetInfo";
+    public const uint FirstCodsworthPostChoiceTopicId = 0x9D0, FirstCodsworthPostChoiceInfoId = 0x9D8;
+    public const uint FirstCodsworthPostReplyTopicId = 0x9E0, FirstCodsworthPostReplyInfoId = 0x9E8;
     public const int MaxTalkButtons = 4;
+
+    // Task 1i: Interior holding cell owning all Mission persistent ACHRs so FO4SFMission.esm has 0 WRLD overrides
+    public const uint MissionHoldingCellId = 0xB60;
+    public const string MissionHoldingCellEdid = "FO4SF_MissionHoldingCell";
 
     // Stages & Objectives
     public static readonly ushort[] Stages = { 10, 20, 30, 35, 40, 200 };
@@ -195,6 +237,14 @@ static class Mission
         ("Synthetic choice 3: ask about nearby survivors.", "Synthetic response 3: nearby town report."),
         ("Synthetic choice 4: head toward Concord.", "Synthetic response 4: onward to Concord."),
     };
+    const string SyntheticPrestonPostGreet = "Sanctuary check-in active.";
+    const string SyntheticPrestonPostButton = "Carry on";
+    const string SyntheticPrestonPostPrompt = "Carry on, Preston.";
+    const string SyntheticPrestonPostReply = "Keep watching the settlement perimeter.";
+    const string SyntheticCodsworthPostGreet = "Sanctuary household check-in active.";
+    const string SyntheticCodsworthPostButton = "Carry on";
+    const string SyntheticCodsworthPostPrompt = "Carry on, Codsworth.";
+    const string SyntheticCodsworthPostReply = "Keeping Sanctuary tidy as ordered.";
 
     public const float Units = 70f;
     static readonly ModKey SfEsm = ModKey.FromFileName("Starfield.esm");
@@ -209,6 +259,18 @@ static class Mission
     public static string? ArgOrNull(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
     public static string Arg(string[] a, string name, string dflt) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : dflt; }
     public static float Opt(string[] a, string name, float dflt) => float.Parse(Arg(a, name, dflt.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
+    public static bool BoolFlag(string[] a, string name, bool dflt)
+    {
+        var i = Array.IndexOf(a, name);
+        if (i < 0) return dflt;
+        if (i + 1 >= a.Length) throw new Refusal($"{name} requires 0 or 1");
+        return a[i + 1] switch
+        {
+            "0" or "false" or "False" => false,
+            "1" or "true" or "True" => true,
+            var bad => throw new Refusal($"{name} expects 0 or 1, got '{bad}'"),
+        };
+    }
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     // ---------------------------------------------------------------- quests (read only)
@@ -507,6 +569,44 @@ static class Mission
             },
         };
 
+        var prestonPostTalk = new Dictionary<string, object?>
+        {
+            ["greeting_info"] = "000F5D0B",
+            ["greeting"] = InfoAllRespText(0x0F5D0B, SyntheticPrestonPostGreet),
+            ["greeting_responses"] = InfoRespList(0x0F5D0B, SyntheticPrestonPostGreet),
+            ["choices"] = new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["reply_info"] = "000F5D0D",
+                    ["button"] = SyntheticPrestonPostButton,
+                    ["prompt"] = SyntheticPrestonPostPrompt,
+                    ["reply"] = InfoAllRespText(0x0F5D0D, SyntheticPrestonPostReply),
+                    ["reply_responses"] = InfoRespList(0x0F5D0D, SyntheticPrestonPostReply),
+                },
+            },
+        };
+
+        var codsworthPostTalk = new Dictionary<string, object?>
+        {
+            ["greeting_info"] = "0001D152",
+            ["greeting_response"] = 1,
+            ["greeting"] = InfoAllRespText(0x01D152, SyntheticCodsworthPostGreet),
+            ["greeting_responses"] = InfoRespList(0x01D152, SyntheticCodsworthPostGreet),
+            ["choices"] = new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["reply_info"] = "0001F157",
+                    ["reply_response"] = 1,
+                    ["button"] = SyntheticCodsworthPostButton,
+                    ["prompt"] = SyntheticCodsworthPostPrompt,
+                    ["reply"] = InfoAllRespText(0x01F157, SyntheticCodsworthPostReply),
+                    ["reply_responses"] = InfoRespList(0x01F157, SyntheticCodsworthPostReply),
+                },
+            },
+        };
+
         object? codsworth = null;
         if (placed.TryGetValue(new FormKey(fo4Key, CodsworthFo4Ref), out var cw) && cw is F4.IPlacedNpcGetter cn &&
             cn.Base.FormKey == new FormKey(fo4Key, CodsworthFo4Npc))
@@ -555,6 +655,7 @@ static class Mission
             ["preston_name"] = Text(preston?.Name, "Preston Garvey"),
             ["preston_npc"] = prestonNpcMeta,
             ["preston_talk"] = prestonTalk,
+            ["preston_post_talk"] = prestonPostTalk,
             ["objectives"] = objectives,
             ["preston"] = new Dictionary<string, object?>
             {
@@ -569,6 +670,7 @@ static class Mission
             }).ToList(),
             ["codsworth"] = codsworth,
             ["codsworth_quest"] = codsworthQuestMeta,
+            ["codsworth_post_talk"] = codsworthPostTalk,
             ["sanctuary_bench"] = sanctuaryBench,
             ["sanctuary_quest"] = new Dictionary<string, string>
             {
@@ -646,6 +748,20 @@ static class Mission
         core.Worldspaces.FirstOrDefault(w => w.EditorID == edid && w.FormKey.ModKey == core.ModKey)
         ?? throw new Refusal($"{core.ModKey} has no worldspace {edid}");
 
+    public static IEnumerable<SF.IPlacedNpcGetter> PersistentNpcRefs(SF.IStarfieldModGetter plug) =>
+        plug.Cells.Records
+            .SelectMany(b => b.SubBlocks)
+            .SelectMany(sb => sb.Cells)
+            .SelectMany(c => c.Persistent)
+            .OfType<SF.IPlacedNpcGetter>();
+
+    public static IEnumerable<SF.PlacedNpc> PersistentNpcRefsMutable(SF.StarfieldMod mod) =>
+        mod.Cells.Records
+            .SelectMany(b => b.SubBlocks)
+            .SelectMany(sb => sb.Cells)
+            .SelectMany(c => c.Persistent)
+            .OfType<SF.PlacedNpc>();
+
     static float[] Floats(JsonElement e) => e.EnumerateArray().Select(x => x.GetSingle()).ToArray();
 
     static SF.INpcGetter PickPrestonTemplate(SF.IStarfieldModGetter sf, FormKey humanRaceKey)
@@ -716,7 +832,9 @@ static class Mission
         uint firstReplyInfoId,
         string prefixEdid,
         float priority,
-        IReadOnlyList<(string Prompt, IReadOnlyList<(string Text, uint Wem, float Duration)> Replies, short EndStage, bool Goodbye)> choices)
+        IReadOnlyList<(string Prompt, IReadOnlyList<(string Text, uint Wem, float Duration)> Replies, short EndStage, bool Goodbye)> choices,
+        uint aliasId = 0,
+        SF.Scene? existingScene = null)
     {
         var rel = SF.StarfieldRelease.Starfield;
         var greetTopic = new SF.DialogTopic(new FormKey(modKey, greetTopicId), rel)
@@ -733,6 +851,8 @@ static class Mission
         {
             EditorID = greetInfoEdid,
             FormVersion = 581,
+            Flags = new SF.DialogResponseFlags { Flags = 0, ResetHours = 0f },
+            SubtitlePriority = SF.DialogResponses.SubtitlePriorityLevel.Low,
         };
         foreach (var gr in greetResponses)
             greetInfo.Responses.Add(MakeNpcDialogResponse(gr.Text, gr.Wem, gr.Duration, speakerVoiceKey));
@@ -743,25 +863,23 @@ static class Mission
 
         // T6 & A1(d) fix: Direct E-Talk NPC scenes in Starfield (e.g. 2B0785) require DEVT = true, Flags = 0x1814
         // (NoFollowerIdleChatter 0x1000 | DisableDialogueCamera 0x0800 | Interruptable 0x0010 | ShowAllText 0x0004),
-        // SCPI = null, SceneActor ID = 0, and FO4SF_MissionTalkUseMessageBox (0x979) == 0 condition gate.
-        var topScene = new SF.Scene(new FormKey(modKey, sceneId), rel)
-        {
-            EditorID = sceneEdid,
-            FormVersion = 581,
-            Quest = new FormLinkNullable<SF.IQuestGetter>(quest.FormKey),
-            Flags = (SF.Scene.Flag)0x1814,
-            DEVT = true,
-            Index = 0,
-            LastActionIndex = 2,
-            SCPI = null,
-            VNAM = new byte[] { 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0 },
-        };
+        // SCPI = null, SceneActor ID = aliasId, and FO4SF_MissionTalkUseMessageBox (0x979) == 0 condition gate.
+        var topScene = existingScene ?? new SF.Scene(new FormKey(modKey, sceneId), rel);
+        topScene.EditorID = sceneEdid;
+        topScene.FormVersion = 581;
+        topScene.Quest = new FormLinkNullable<SF.IQuestGetter>(quest.FormKey);
+        topScene.Flags = (SF.Scene.Flag)0x1814;
+        topScene.DEVT = true;
+        topScene.Index = 0;
+        topScene.LastActionIndex = 2;
+        topScene.SCPI = null;
+        topScene.VNAM = new byte[] { 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0 };
         topScene.Conditions.Add(SpeakerIs(speakerNpcKey));
         topScene.Conditions.Add(stageGate);
         topScene.Conditions.Add(GlobalIsZero(new FormKey(modKey, MissionTalkUseMessageBoxGlobId)));
         topScene.Actors.Add(new SF.SceneActor
         {
-            ID = 0,
+            ID = aliasId,
             BehaviorFlags = (SF.SceneActor.BehaviorFlag)0x10A,
             Flags = SF.SceneActor.Flag.NoCommandState,
         });
@@ -773,7 +891,7 @@ static class Mission
         {
             Name = "",
             Index = 1,
-            AliasID = 0,
+            AliasID = (int)aliasId,
             StartPhase = 0,
             EndPhase = 0,
             Topic = new FormLinkNullable<SF.IDialogTopicGetter>(greetTopic.FormKey),
@@ -785,8 +903,8 @@ static class Mission
         {
             Name = "",
             Index = 2,
-            AliasID = 0,
-            DialogueTargetActor = 0,
+            AliasID = (int)aliasId,
+            DialogueTargetActor = (int)aliasId,
             StartPhase = 1,
             EndPhase = 1,
         };
@@ -804,10 +922,14 @@ static class Mission
                 Subtype = SF.DialogTopic.SubtypeEnum.CustomScene,
                 SubtypeName = SF.DialogTopic.SubtypeNameEnum.CustomScene,
             };
+            // R11 D5 Part 3: Starfield PlayerDialogue PC INFOs carry explicit ENAM (Flags=0, DoNotGrayOut clear) and
+            // INAM (SubtitlePriority=Low) across 20,731/20,731 vanilla choices so DialogueMenu greys out asked options.
             var pcInfo = new SF.DialogResponses(new FormKey(modKey, firstChoiceInfoId + idx), rel)
             {
                 EditorID = $"{prefixEdid}_ChoiceInfo_{idx}",
                 FormVersion = 581,
+                Flags = new SF.DialogResponseFlags { Flags = 0, ResetHours = 0f },
+                SubtitlePriority = SF.DialogResponses.SubtitlePriorityLevel.Low,
                 Prompt = c.Prompt,
             };
             pcInfo.Responses.Add(new SF.DialogResponse { ResponseText = c.Prompt, WEMFile = 0 });
@@ -829,16 +951,17 @@ static class Mission
             {
                 EditorID = $"{prefixEdid}_ReplyInfo_{idx}",
                 FormVersion = 581,
+                SubtitlePriority = SF.DialogResponses.SubtitlePriorityLevel.Low,
             };
             if (c.EndStage > 0)
                 npcInfo.SetParentQuestStage = new SF.DialogSetParentQuestStage { OnBegin = -1, OnEnd = c.EndStage };
             if (c.Goodbye)
-                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 1 };
+                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 1, ResetHours = 0f };
             else
             {
                 // C2: Starfield TSCE uses INTV (4-byte LE phase index) alongside NAM0 (StartScenePhase) to jump
                 // directly to Phase 1 (TOPLEVELNEST) without replaying Phase 0 greeting (verified vs Starfield.esm 0028D90C/0002573C).
-                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 0 };
+                npcInfo.Flags = new SF.DialogResponseFlags { Flags = 0, ResetHours = 0f };
                 npcInfo.StartScene = new FormLinkNullable<SF.ISceneGetter>(topScene.FormKey);
                 npcInfo.StartScenePhase = "TOPLEVELNEST";
                 npcInfo.INTV = new byte[] { 1, 0, 0, 0 };
@@ -952,7 +1075,7 @@ static class Mission
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
                             string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null,
                             string? codsworthVoice = null, string? codsworthMqVoice = null, string? prestonVoicePath = null,
-                            string? actorLooksDir = null)
+                            string? actorLooksDir = null, bool codsworthRaceFraming = false)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -983,6 +1106,10 @@ static class Mission
             throw new Refusal($"Starfield.esm {SfRaiderWeaponId:X6} is not the WEAP {SfRaiderWeaponEdid}");
         if (!m.Cache.TryResolve<SF.IAmmunitionGetter>(new FormKey(SfEsm, SfRaiderAmmoId), out var raiderAmmo) || raiderAmmo.EditorID != SfRaiderAmmoEdid)
             throw new Refusal($"Starfield.esm {SfRaiderAmmoId:X6} is not the AMMO {SfRaiderAmmoEdid}");
+        if (!m.Cache.TryResolve<SF.IWeaponGetter>(new FormKey(SfEsm, SfRaiderSidearmId), out var raiderSidearm) || raiderSidearm.EditorID != SfRaiderSidearmEdid)
+            throw new Refusal($"Starfield.esm {SfRaiderSidearmId:X6} is not the WEAP {SfRaiderSidearmEdid}");
+        if (!m.Cache.TryResolve<SF.IAmmunitionGetter>(new FormKey(SfEsm, SfRaiderSidearmAmmoId), out var raiderSidearmAmmo) || raiderSidearmAmmo.EditorID != SfRaiderSidearmAmmoEdid)
+            throw new Refusal($"Starfield.esm {SfRaiderSidearmAmmoId:X6} is not the AMMO {SfRaiderSidearmAmmoEdid}");
         if (!m.Cache.TryResolve<SF.IPackageGetter>(new FormKey(SfEsm, RaiderCombatPackageId), out var raiderCombatPack) || raiderCombatPack.EditorID != RaiderCombatPackageEdid)
             throw new Refusal($"Starfield.esm {RaiderCombatPackageId:X6} is not the PACK {RaiderCombatPackageEdid}");
         if (!m.Cache.TryResolve<SF.IPackageGetter>(new FormKey(SfEsm, RaiderSandboxPackageId), out var raiderSandboxPack) || raiderSandboxPack.EditorID != RaiderSandboxPackageEdid)
@@ -991,7 +1118,6 @@ static class Mission
         var raiderNpc = m.Raider.Npcs.FirstOrDefault(n => n.FormKey.ID == RaiderId && n.EditorID == "FO4_LvlRaider")
                         ?? throw new Refusal($"{m.Raider.ModKey} has no F04800 FO4_LvlRaider");
         var world = FindWorld(m.Core, worldEdid);
-        var top = world.TopCell ?? throw new Refusal($"{worldEdid} has no persistent cell");
 
         // 2g: Preston's dedicated HumanRace NPC_ from FO4 0x00019FD9 metadata + Starfield colonial/Orion stand-ins
         var minutemen = new SF.Faction(new FormKey(modKey, MinutemenFactionId), SF.StarfieldRelease.Starfield) { EditorID = MinutemenFactionEdid };
@@ -1037,14 +1163,20 @@ static class Mission
         npc.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(minutemen.FormKey), Rank = 0 });
         mod.Npcs.Add(npc);
 
-        // Worldspace & persistent cell override holding our persistent ACHRs
-        var w = (SF.Worldspace)world.DeepCopy();
-        w.SubCells.Clear();
-        var cell = (SF.Cell)top.DeepCopy();
-        cell.Persistent.Clear();
-        cell.Temporary.Clear();
-        cell.NavigationMeshes.Clear();
-        w.TopCell = cell;
+        // Task 1i: Mission-owned interior holding cell (0x000B60) holds persistent ACHRs with 0 WRLD overrides,
+        // so FO4SFMission.esm never copies FO4Core_Commonwealth or Starfield's Mars biome (0x002A3777).
+        var cell = new SF.Cell(new FormKey(modKey, MissionHoldingCellId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = MissionHoldingCellEdid,
+            Name = "Commonwealth Holding",
+            FormVersion = 581,
+            Flags = SF.Cell.Flag.IsInteriorCell,
+        };
+        var cellSub = new SF.CellSubBlock { BlockNumber = (int)((MissionHoldingCellId / 10) % 10), GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
+        cellSub.Cells.Add(cell);
+        var cellBlock = new SF.CellBlock { BlockNumber = (int)(MissionHoldingCellId % 10), GroupType = SF.GroupTypeEnum.InteriorCellBlock };
+        cellBlock.SubBlocks.Add(cellSub);
+        mod.Cells.Records.Add(cellBlock);
         SF.PlacedNpc Ach(uint id, FormKey baseKey, string edid, JsonElement e, float dx = 0f, float dy = 0f)
         {
             var p = Floats(e.GetProperty("pos"));
@@ -1078,10 +1210,26 @@ static class Mission
             if (!m.Cache.TryResolve<SF.IRaceGetter>(body.Race.FormKey, out var baseBotRace))
                 throw new Refusal($"Codsworth body {codsworthBody} race {body.Race.FormKey} does not resolve");
 
-            // 2h: Dialogue-capable duplicate Race (AllowPcDialog) + custom VoiceType (AllowDefaultDialog)
+            // 2h & R11 Review Item #6: Duplicate MiniBotARace with AllowPcDialog + ArmorRace only by default
+            // (--codsworth-race-framing 0, exact 2g parity).
+            // Passing --codsworth-race-framing 1 opts into the 5 standing-robot dialogue framing edits for variant testing.
             var codsRace = (SF.Race)baseBotRace.Duplicate(new FormKey(modKey, CodsworthRaceId));
             codsRace.EditorID = CodsworthRaceEdid;
             codsRace.Flags |= SF.Race.Flag.AllowPcDialog;
+            if (codsworthRaceFraming)
+            {
+                codsRace.Flags = (codsRace.Flags | SF.Race.Flag.HeadAxisBit0 |
+                                  (SF.Race.Flag)0x0080000000000000UL) & ~SF.Race.Flag.TiltFrontBack;
+                codsRace.Size = SF.Size.Medium;
+                codsRace.DialogueQuest.Clear();
+                if (m.Cache.TryResolve<SF.IRaceGetter>(new FormKey(SfEsm, SfModelARaceId), out var modelARace) &&
+                    modelARace.EditorID == SfModelARaceEdid &&
+                    modelARace.DAT2Unknown3.Length == codsRace.DAT2Unknown3.Length &&
+                    modelARace.DAT2Unknown3.Length > 0)
+                {
+                    codsRace.DAT2Unknown3 = modelARace.DAT2Unknown3.ToArray();
+                }
+            }
             codsRace.ArmorRace.SetTo(baseBotRace.FormKey);
             mod.Races.Add(codsRace);
 
@@ -1142,7 +1290,6 @@ static class Mission
             mod.Npcs.Add(cods);
             codsRef = Ach(CodsworthRefId, cods.FormKey, CodsworthRefEdid, cj);
         }
-        mod.Worldspaces.Add(w);
 
         // 2b: FO4SF_Min00 (0x800) — non-StartGameEnabled (started via StartNoWait at FO4SFNewGame stage 200)
         var objText = pts.GetProperty("objectives");
@@ -1179,6 +1326,8 @@ static class Mission
         }
 
         SF.Scene? prestonScene = null;
+        IReadOnlyList<(string Text, uint Wem, float Duration)>? prestonPostGreetPaired = null;
+        (string Prompt, IReadOnlyList<(string Text, uint Wem, float Duration)> Replies, short EndStage, bool Goodbye)[]? prestonPostSceneChoices = null;
         if (alias)
         {
             (quest.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
@@ -1255,13 +1404,38 @@ static class Mission
             }
             var pSceneChoices = pChoices.Select((c, idx) =>
                 (c.Prompt, PairSceneClips(pReplyTextLists[idx], prestonWem?.ReplyClips[idx]), c.EndStage, c.Goodbye)).ToArray();
+            var prestonGreetPaired = PairSceneClips(pGreetTexts, prestonWem?.GreetingClips);
+
+            // Step 3: Post-mission Preston scene 0x990 uses short FO4 post-mission lines / 1-choice stand-in
+            // (never replaying the 3 Concord meeting choices or mismatched Concord voice WEMs).
+            string pPostGreet = SyntheticPrestonPostGreet;
+            var pPostGreetTexts = new List<string> { pPostGreet };
+            string pPostPrompt = SyntheticPrestonPostPrompt;
+            var pPostReplyTexts = new List<string> { SyntheticPrestonPostReply };
+            if (pts.TryGetProperty("preston_post_talk", out var pptEl) && pptEl.ValueKind == JsonValueKind.Object)
+            {
+                if (pptEl.TryGetProperty("greeting", out var gEl) && gEl.GetString() is { Length: > 0 } gs) pPostGreet = gs;
+                pPostGreetTexts = ExtractRespTexts(pptEl, "greeting_responses", pPostGreet);
+                if (pptEl.TryGetProperty("choices", out var chEl) && chEl.ValueKind == JsonValueKind.Array && chEl.GetArrayLength() >= 1)
+                {
+                    var ce = chEl.EnumerateArray().First();
+                    pPostPrompt = ce.TryGetProperty("prompt", out var prEl) && prEl.GetString() is { Length: > 0 } ps ? ps : SyntheticPrestonPostPrompt;
+                    var rp = ce.TryGetProperty("reply", out var rpEl) && rpEl.GetString() is { Length: > 0 } rs ? rs : SyntheticPrestonPostReply;
+                    pPostReplyTexts = ExtractRespTexts(ce, "reply_responses", rp);
+                }
+            }
+            prestonPostGreetPaired = PairSceneClips(pPostGreetTexts, null);
+            prestonPostSceneChoices = new[]
+            {
+                (pPostPrompt, (IReadOnlyList<(string Text, uint Wem, float Duration)>)PairSceneClips(pPostReplyTexts, null), (short)-1, true),
+            };
             prestonScene = BuildTopScene(
                 modKey, quest, npc.FormKey, prestonVoice.FormKey,
                 QuestStageCond(quest.FormKey, SF.CompareOperator.EqualTo, 30f),
                 PrestonTalkSceneId, PrestonTalkSceneEdid,
                 PrestonGreetTopicId, PrestonGreetTopicEdid,
                 PrestonGreetInfoId, PrestonGreetInfoEdid,
-                PairSceneClips(pGreetTexts, prestonWem?.GreetingClips),
+                prestonGreetPaired,
                 FirstPrestonChoiceTopicId, FirstPrestonChoiceInfoId,
                 FirstPrestonReplyTopicId, FirstPrestonReplyInfoId,
                 "FO4SF_Min00_Preston", 50f, pSceneChoices);
@@ -1280,10 +1454,43 @@ static class Mission
             Data = 0f,
         });
 
+        // R11/R13 Part 3 E3 + fix4: Softened Concord Raider sidearm (WEAP 0x097A, AttackDamage=1.5, ProjectilesCount=1,
+        // AmmoType=0x04AD3E, AmmoList=null, ObjectTemplates & AttachParentSlots kept intact so model renders/fires, NonPlayable)
+        var concordSidearm = (SF.Weapon)raiderSidearm.Duplicate(new FormKey(modKey, ConcordRaiderSidearmWeapId));
+        concordSidearm.EditorID = ConcordRaiderSidearmWeapEdid;
+        concordSidearm.Name = "Eon";
+        concordSidearm.AttackDamage = ConcordRaiderSidearmDamage;
+        concordSidearm.ProjectilesCount = ConcordRaiderSidearmProjectiles;
+        concordSidearm.AmmoType.SetTo(raiderSidearmAmmo.FormKey);
+        concordSidearm.AmmoList.SetToNull();
+        concordSidearm.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
+        concordSidearm.NonPlayable = true;
+        mod.Weapons.Add(concordSidearm);
+
+        // R13 E3 + fix4: Softened Concord Raider primary (WEAP 0x097B, duplicated from Coachman 0x26D96B with
+        // AttackDamage=6.0, ProjectilesCount=1, AmmoType=0x2B4AFB, AmmoList=null, ObjectTemplates & AttachParentSlots kept intact, NonPlayable).
+        var concordPrimary = (SF.Weapon)raiderWeapon.Duplicate(new FormKey(modKey, ConcordRaiderPrimaryWeapId));
+        concordPrimary.EditorID = ConcordRaiderPrimaryWeapEdid;
+        concordPrimary.Name = "Coachman";
+        concordPrimary.AttackDamage = ConcordRaiderPrimaryDamage;
+        concordPrimary.ProjectilesCount = ConcordRaiderPrimaryProjectiles;
+        concordPrimary.AmmoType.SetTo(raiderAmmo.FormKey);
+        concordPrimary.AmmoList.SetToNull();
+        concordPrimary.MajorFlags |= SF.Weapon.MajorFlag.NonPlayable;
+        concordPrimary.NonPlayable = true;
+        mod.Weapons.Add(concordPrimary);
+
+        float primaryRecordDamage = concordPrimary.AttackDamage * Math.Max(1, (int)concordPrimary.ProjectilesCount);
+        float sidearmRecordDamage = concordSidearm.AttackDamage * Math.Max(1, (int)concordSidearm.ProjectilesCount);
+
         var script = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
         SF.ScriptObjectProperty Obj(string name, FormKey fk) => new()
         {
             Name = name, Flags = SF.ScriptProperty.Flag.Edited, Object = new FormLink<SF.IStarfieldMajorRecordGetter>(fk), Alias = -1, Unused = 0,
+        };
+        SF.ScriptFloatProperty Flt(string name, float val) => new()
+        {
+            Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = val,
         };
         SF.ScriptObjectProperty CodsworthProp(string name, FormKey fk) => new()
         {
@@ -1302,8 +1509,12 @@ static class Mission
             e.Properties.Add(Obj("Credits", credits.FormKey));
         }
         MissionProps(script);
-        script.Properties.Add(Obj("RaiderWeapon", raiderWeapon.FormKey));
+        script.Properties.Add(Obj("RaiderWeapon", concordPrimary.FormKey));
         script.Properties.Add(Obj("RaiderAmmo", raiderAmmo.FormKey));
+        script.Properties.Add(Obj("RaiderSidearm", concordSidearm.FormKey));
+        script.Properties.Add(Obj("RaiderSidearmAmmo", raiderSidearmAmmo.FormKey));
+        script.Properties.Add(Flt("RaiderPrimaryRecordDamage", primaryRecordDamage));
+        script.Properties.Add(Flt("RaiderSidearmRecordDamage", sidearmRecordDamage));
         if (prestonScene is not null)
         {
             script.Properties.Add(Obj("PrestonTalkScene", prestonScene.FormKey));
@@ -1352,17 +1563,56 @@ static class Mission
             };
             mod.Activators.Add(codsTalkActi);
 
-            // 2b / B1: FO4SF_CodsworthKeeper (0x814) — non-StartGameEnabled, no StartsEnabled/0x10000 dormancy bits
+            // 2b / B1 / R11 Part 3: FO4SF_CodsworthKeeper (0x814) — non-StartGameEnabled, no StartsEnabled/0x10000 dormancy bits;
+            // hosts non-completing repeat Starfield Scenes FO4SF_PrestonPostScene (0x990, alias 0) & FO4SF_CodsworthPostScene (0x9C0, alias 1).
             keeper = new SF.Quest(new FormKey(modKey, KeeperQuestId), SF.StarfieldRelease.Starfield)
             {
                 EditorID = KeeperEdid, FormVersion = 581, Version2 = 12,
-                Data = new SF.QuestData { Flags = (SF.Quest.Flag)0, Priority = 50 },
+                Data = new SF.QuestData
+                {
+                    Flags = SF.Quest.Flag.AllowRepeatedStages | SF.Quest.Flag.HasDialogueData,
+                    Priority = 50,
+                },
             };
+            (keeper.Aliases ??= new ExtendedList<SF.AQuestAlias>()).Add(new SF.QuestReferenceAlias
+            {
+                ID = KeeperPrestonAlias, Name = "PrestonGarvey",
+                Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
+                        SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
+                ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(prestonRef.FormKey),
+            });
+            keeper.Aliases.Add(new SF.QuestReferenceAlias
+            {
+                ID = KeeperCodsworthAlias, Name = "Codsworth",
+                Flags = SF.AQuestAlias.Flag.Optional | SF.AQuestAlias.Flag.AllowDead | SF.AQuestAlias.Flag.AllowDisabled |
+                        SF.AQuestAlias.Flag.AllowReserved | SF.AQuestAlias.Flag.UsesStoredText,
+                ForcedReference = new FormLinkNullable<SF.IPlacedGetter>(codsRef.FormKey),
+            });
             var ks = new SF.ScriptEntry { Name = ScriptName, Flags = SF.ScriptEntry.Flag.Local };
             MissionProps(ks);
             ks.Properties.Add(Obj("Codsworth", codsRef.FormKey));
             ks.Properties.Add(new SF.ScriptBoolProperty { Name = "KeeperOnly", Flags = SF.ScriptProperty.Flag.Edited, Data = true });
             keeper.VirtualMachineAdapter = Adapter(ks);
+
+            if (alias && prestonPostGreetPaired is not null && prestonPostSceneChoices is not null)
+            {
+                var prestonPostScnObj = new SF.Scene(new FormKey(modKey, PrestonPostTalkSceneId), SF.StarfieldRelease.Starfield)
+                {
+                    EditorID = PrestonPostTalkSceneEdid,
+                };
+                var prestonPostScene = BuildTopScene(
+                    modKey, keeper, npc.FormKey, prestonVoice.FormKey,
+                    QuestStageCond(quest.FormKey, SF.CompareOperator.GreaterThanOrEqualTo, 200f),
+                    PrestonPostTalkSceneId, PrestonPostTalkSceneEdid,
+                    PrestonPostGreetTopicId, PrestonPostGreetTopicEdid,
+                    PrestonPostGreetInfoId, PrestonPostGreetInfoEdid,
+                    prestonPostGreetPaired,
+                    FirstPrestonPostChoiceTopicId, FirstPrestonPostChoiceInfoId,
+                    FirstPrestonPostReplyTopicId, FirstPrestonPostReplyInfoId,
+                    "FO4SF_PrestonPost", 50f, prestonPostSceneChoices,
+                    KeeperPrestonAlias, prestonPostScnObj);
+                script.Properties.Add(Obj("PrestonPostTalkScene", prestonPostScene.FormKey));
+            }
 
             // 2h & 2b & A1(d): FO4SF_Codsworth01 (0x816) — MQ102-lite 4-choice voiced Sanctuary quest, non-StartGameEnabled
             string cqName = "Synthetic Sanctuary Inquiry";
@@ -1434,6 +1684,7 @@ static class Mission
             cqObj.Targets.Add(new SF.QuestObjectiveTarget { AliasID = CodsworthAlias });
             codsworthQuest.Objectives.Add(cqObj);
 
+            var cqGreetPaired = PairSceneClips(cqGreetTexts, mqWem?.GreetingClips);
             var cqSceneChoices = cqChoices.Select((c, idx) =>
                 (c.Prompt, PairSceneClips(cqReplyTextLists[idx], mqWem?.ReplyClips[idx]), c.EndStage, c.Goodbye)).ToArray();
             BuildTopScene(
@@ -1442,14 +1693,54 @@ static class Mission
                 CodsworthSceneId, CodsworthSceneEdid,
                 CodsworthGreetTopicId, CodsworthGreetTopicEdid,
                 CodsworthGreetInfoId, CodsworthGreetInfoEdid,
-                PairSceneClips(cqGreetTexts, mqWem?.GreetingClips),
+                cqGreetPaired,
                 FirstCodsworthChoiceTopicId, FirstCodsworthChoiceInfoId,
                 FirstCodsworthReplyTopicId, FirstCodsworthReplyInfoId,
                 "FO4SF_Codsworth01", 55f, cqSceneChoices);
 
+            // Step 3: Post-mission Codsworth scene 0x9C0 uses DialogueCodsworthPostWar (0x01E64E) / 1-choice stand-in
+            // (never replaying the 4 MQ102 first-meeting choices or mismatched MQ102 audio).
+            string cqPostGreet = SyntheticCodsworthPostGreet;
+            var cqPostGreetTexts = new List<string> { cqPostGreet };
+            string cqPostPrompt = SyntheticCodsworthPostPrompt;
+            var cqPostReplyTexts = new List<string> { SyntheticCodsworthPostReply };
+            if (pts.TryGetProperty("codsworth_post_talk", out var cptEl) && cptEl.ValueKind == JsonValueKind.Object)
+            {
+                if (cptEl.TryGetProperty("greeting", out var gEl) && gEl.GetString() is { Length: > 0 } gs) cqPostGreet = gs;
+                cqPostGreetTexts = ExtractRespTexts(cptEl, "greeting_responses", cqPostGreet);
+                if (cptEl.TryGetProperty("choices", out var chEl) && chEl.ValueKind == JsonValueKind.Array && chEl.GetArrayLength() >= 1)
+                {
+                    var ce = chEl.EnumerateArray().First();
+                    cqPostPrompt = ce.TryGetProperty("prompt", out var prEl) && prEl.GetString() is { Length: > 0 } ps ? ps : SyntheticCodsworthPostPrompt;
+                    var rp = ce.TryGetProperty("reply", out var rpEl) && rpEl.GetString() is { Length: > 0 } rs ? rs : SyntheticCodsworthPostReply;
+                    cqPostReplyTexts = ExtractRespTexts(ce, "reply_responses", rp);
+                }
+            }
+            var cqPostGreetPaired = PairSceneClips(cqPostGreetTexts, null);
+            var cqPostChoices = new[]
+            {
+                (cqPostPrompt, (IReadOnlyList<(string Text, uint Wem, float Duration)>)PairSceneClips(cqPostReplyTexts, null), (short)-1, true),
+            };
+            var codsworthPostScnObj = new SF.Scene(new FormKey(modKey, CodsworthPostSceneId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = CodsworthPostSceneEdid,
+            };
+            var codsworthPostScene = BuildTopScene(
+                modKey, keeper, cods.FormKey, new FormKey(modKey, CodsworthVoiceId),
+                QuestStageCond(codsworthQuest.FormKey, SF.CompareOperator.GreaterThanOrEqualTo, 100f),
+                CodsworthPostSceneId, CodsworthPostSceneEdid,
+                CodsworthPostGreetTopicId, CodsworthPostGreetTopicEdid,
+                CodsworthPostGreetInfoId, CodsworthPostGreetInfoEdid,
+                cqPostGreetPaired,
+                FirstCodsworthPostChoiceTopicId, FirstCodsworthPostChoiceInfoId,
+                FirstCodsworthPostReplyTopicId, FirstCodsworthPostReplyInfoId,
+                "FO4SF_CodsworthPost", 55f, cqPostChoices,
+                KeeperCodsworthAlias, codsworthPostScnObj);
+
             var cwScript = new SF.ScriptEntry { Name = CodsworthScriptName, Flags = SF.ScriptEntry.Flag.Local };
             cwScript.Properties.Add(CodsworthProp("Codsworth", codsRef.FormKey));
             cwScript.Properties.Add(CodsworthProp("CodsworthScene", new FormKey(modKey, CodsworthSceneId)));
+            cwScript.Properties.Add(CodsworthProp("CodsworthPostScene", codsworthPostScene.FormKey));
             cwScript.Properties.Add(CodsworthProp("CodsworthTalkActi", new FormKey(modKey, CodsworthTalkActiId)));
             cwScript.Properties.Add(CodsworthProp("CodsworthTalkMsg", new FormKey(modKey, CodsworthTalkMsgId)));
             cwScript.Properties.Add(CodsworthProp("CodsworthReply0Msg", new FormKey(modKey, CodsworthReply0MsgId)));
@@ -1561,7 +1852,7 @@ static class Mission
         FalloutActorLooks.ApplyActorLooks(
             mod, m.Sf, m.Raider, FalloutActorLooks.ActorLooksModels.FromDirectoryOrArgs(actorLooksDir));
 
-        uint maxId = Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1))))));
+        uint maxId = Math.Max(MissionHoldingCellId + 1, Math.Max(FalloutActorLooks.MaxAllocatedId, Math.Max(NextStoryMissionsA7cd.MaxAllocatedId, Math.Max(NextStoryMissionsA7.MaxAllocatedId, Math.Max(NextStoryMissionsA4.MaxAllocatedId, Math.Max(SanctuaryQuestId + 1, Math.Max(MinutemenFactionId + 1, MissionTalkUseMessageBoxGlobId + 1)))))));
         if (alias) maxId = Math.Max(maxId, Math.Max(FirstPrestonReplyInfoId + 3, PrestonReply2MsgId + 1));
         if (codsworthQuest is not null) maxId = Math.Max(maxId, Math.Max(FirstCodsworthReplyInfoId + 4, CodsworthReply2MsgId + 1));
         if (lines.Count > 0) maxId = Math.Max(maxId, FirstCodsworthInfoId + (uint)lines.Count);
@@ -1581,7 +1872,7 @@ static class Mission
                                             (codsworthModel is null ? "; " : $", skin {CodsworthSkinEdid} model {codsworthModel}; ")) +
                           $"QUST {SanctuaryQuestEdid} {sanctuaryQuest.FormKey}; " +
                           $"QUST {ComQuestEdid} {com.FormKey} alias {ComAliasName} package {FollowPackageEdid} {FollowPackageId:X6}; " +
-                          $"WRLD {w.EditorID} {w.FormKey} persistent CELL {cell.FormKey} overridden");
+                          $"holding CELL {cell.EditorID} {cell.FormKey} (0 WRLD overrides; core {world.FormKey} verified)");
         return 0;
     }
 
@@ -1641,7 +1932,7 @@ static class Mission
 
     public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
                             string? codsworthModel = null, string? codsworthVoice = null, string? codsworthMqVoice = null,
-                            string? prestonVoicePath = null, string? actorLooksDir = null)
+                            string? prestonVoicePath = null, string? actorLooksDir = null, bool codsworthRaceFraming = false)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -1652,7 +1943,10 @@ static class Mission
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], next 0x{plug.ModHeader.Stats.NextFormID:X}, " +
                           $"{plug.Quests.Count} QUST, {plug.Npcs.Count} NPC_, {plug.Races.Count} RACE, {plug.VoiceTypes.Count} VTYP, {plug.Worldspaces.Count} WRLD");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
-        Need(masters.SequenceEqual(new[] { "Starfield.esm", m.Core.ModKey.FileName.String, m.Raider.ModKey.FileName.String }), "masters are not Starfield, core, raider");
+        Need(
+            masters.SequenceEqual(new[] { "Starfield.esm" }) ||
+            masters.SequenceEqual(new[] { "Starfield.esm", m.Raider.ModKey.FileName.String }),
+            "masters are not [Starfield.esm] (Task 1i removes static core WRLD master dependency)");
 
         var talkGlob = plug.Globals.FirstOrDefault(g => g.FormKey == new FormKey(key, MissionTalkUseMessageBoxGlobId));
         Need(talkGlob is { EditorID: MissionTalkUseMessageBoxGlobEdid } && MathF.Abs(talkGlob.Data ?? -1f) < 1e-5f,
@@ -1699,12 +1993,17 @@ static class Mission
         Need(npc is not null && npc.DefaultTemplate.IsNull && npc.TemplateActors is null, "Preston retains DefaultTemplate or TemplateActors");
 
         var world = FindWorld(m.Core, World);
-        var w = plug.Worldspaces.FirstOrDefault();
-        Need(w is not null && w.FormKey == world.FormKey && w.SubCells.Count == 0, "the WRLD override is not the core world without exterior cells");
-        var cell = w?.TopCell;
-        Need(cell is not null && cell.FormKey == world.TopCell?.FormKey, "the persistent cell override is not the core's");
+        Need(plug.Worldspaces.Count == 0,
+             $"Task 1i: FO4SFMission.esm must have ZERO WRLD overrides (0 FO4Core_Commonwealth / 0 Mars biome 0x002A3777), found {plug.Worldspaces.Count}");
+        var cell = plug.Cells.Records
+            .SelectMany(b => b.SubBlocks)
+            .SelectMany(sb => sb.Cells)
+            .FirstOrDefault(c => c.FormKey == new FormKey(key, MissionHoldingCellId));
+        Need(cell is { EditorID: MissionHoldingCellEdid } && (cell.Flags ?? 0).HasFlag(SF.Cell.Flag.IsInteriorCell) &&
+             (cell.Name?.String is null || !cell.Name.String.Contains("FO4SF", StringComparison.OrdinalIgnoreCase)),
+             $"holding CELL 0x{MissionHoldingCellId:X} ({MissionHoldingCellEdid}) missing, lacks IsInteriorCell, or exposes FO4SF in FULL ({cell?.Name?.String})");
         var refs = cell?.Persistent.OfType<SF.IPlacedNpcGetter>().ToList() ?? new();
-        Need(cell is null || cell.Persistent.Count == refs.Count, "the persistent cell holds something other than our ACHRs");
+        Need(cell is null || cell.Persistent.Count == refs.Count, "the holding cell holds something other than our ACHRs");
         foreach (var r in refs)
         {
             Console.WriteLine($"  ACHR {r.FormKey.ID:X6} {r.EditorID} base {r.Base.FormKey} at {Show(r.Position)} flags 0x{r.MajorRecordFlagsRaw:X}");
@@ -1765,6 +2064,22 @@ static class Mission
             Need(codsRace is { EditorID: CodsworthRaceEdid } && codsRace.Flags.HasFlag(SF.Race.Flag.AllowPcDialog) &&
                  cods?.Race.FormKey == codsRace.FormKey,
                  $"Codsworth lacks local RACE {CodsworthRaceEdid} (0x{CodsworthRaceId:X}) with AllowPcDialog");
+            if (codsworthRaceFraming)
+            {
+                Need(codsRace is { Size: SF.Size.Medium } && codsRace.DialogueQuest.IsNull &&
+                     codsRace.Flags.HasFlag(SF.Race.Flag.HeadAxisBit0) &&
+                     !codsRace.Flags.HasFlag(SF.Race.Flag.TiltFrontBack) &&
+                     (((ulong)codsRace.Flags & 0x0080000000000000UL) != 0),
+                     $"R11 D1: {CodsworthRaceEdid} lacks standing dialogue framing metadata (--codsworth-race-framing 1)");
+            }
+            else if (codsRace is not null && m.Cache.TryResolve<SF.IRaceGetter>(codsRace.ArmorRace.FormKey, out var baseBotRaceCheck))
+            {
+                Need(codsRace.Size == baseBotRaceCheck.Size &&
+                     codsRace.DialogueQuest.FormKey == baseBotRaceCheck.DialogueQuest.FormKey &&
+                     codsRace.Flags == (baseBotRaceCheck.Flags | SF.Race.Flag.AllowPcDialog) &&
+                     codsRace.DAT2Unknown3.Span.SequenceEqual(baseBotRaceCheck.DAT2Unknown3.Span),
+                     $"R11 Review Item #6: default build (--codsworth-race-framing 0) must keep 2g {CodsworthRaceEdid} (AllowPcDialog + ArmorRace only)");
+            }
             Need(codsVoice is { EditorID: CodsworthVoiceEdid } && codsVoice.Flags.HasFlag(SF.VoiceType.Flag.AllowDefaultDialog) &&
                  cods?.Voice.FormKey == codsVoice.FormKey,
                  $"Codsworth lacks local VTYP {CodsworthVoiceEdid} (0x{CodsworthVoiceId:X}) with AllowDefaultDialog");
@@ -1791,7 +2106,7 @@ static class Mission
 
         Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId || NextStoryMissionsA4.IsA4ActorRefId(r.FormKey.ID) || NextStoryMissionsA7.IsA7ActorRefId(r.FormKey.ID) || NextStoryMissionsA7cd.IsA7cdActorRefId(r.FormKey.ID)),
              "an ACHR outside Preston, the raiders, Codsworth, A4, A7, and A7cd actors");
-        Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(m.Raider.ModKey, RaiderId)), "no raider ACHR on FO4_LvlRaider");
+        Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(key, FalloutActorLooks.ConcordRaiderNpcId)), "no raider ACHR on FO4_ConcordRaider (0x986)");
         Need(raiders.All(r => r.Position.X < -1500f && r.Position.Y < -1000f),
              "C3: a raider ACHR is still at unmerged coordinates instead of merged Concord coordinates");
 
@@ -1880,6 +2195,9 @@ static class Mission
                             var pTxt = pcInfo.Prompt?.String ?? "";
                             var rTxt = pcInfo.Responses.FirstOrDefault()?.ResponseText?.String ?? "";
                             Need(pTxt.Length > 0 && pTxt == rTxt, $"Preston choice {ci} does not show full player line in both Prompt and ResponseText");
+                            Need(pcInfo.Flags is { Flags: 0 } && pcInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low &&
+                                 rpInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low,
+                                 $"R11 D5: Preston choice {ci} lacks explicit ENAM (Flags=0, DoNotGrayOut clear) or INAM SubtitlePriority=Low");
                             CheckSceneResponsesAndTrot(rpInfo, pVoiceSpec?.ReplyClips[ci], npc?.Voice.FormKey ?? FormKey.Null, $"Preston reply {ci}");
                             if (ci == 2)
                                 Need(rpInfo.SetParentQuestStage?.OnEnd == 35 && rpInfo.Flags?.Flags == 1,
@@ -1907,9 +2225,42 @@ static class Mission
                 Need(props.TryGetValue("Credits", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, CreditsId), "property Credits");
                 Need(props.TryGetValue("Raiders", out var rp) && rp is SF.IScriptObjectListPropertyGetter rl &&
                      rl.Objects.Select(o => o.Object.FormKey).SequenceEqual(raiders.Select(r => r.FormKey)), "property Raiders lists the raider ACHRs in order");
-                Need(props.TryGetValue("RaiderWeapon", out var rwp) && rwp is SF.IScriptObjectPropertyGetter rwo && rwo.Object.FormKey == new FormKey(SfEsm, SfRaiderWeaponId) &&
+                var concordPrimaryCheck = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, ConcordRaiderPrimaryWeapId));
+                Need(concordPrimaryCheck is { EditorID: ConcordRaiderPrimaryWeapEdid } &&
+                     concordPrimaryCheck.Name?.String == "Coachman" &&
+                     concordPrimaryCheck.MajorFlags.HasFlag(SF.Weapon.MajorFlag.NonPlayable) &&
+                     concordPrimaryCheck.NonPlayable &&
+                     (concordPrimaryCheck.ObjectTemplates?.Count ?? 0) > 0 &&
+                     (concordPrimaryCheck.AttachParentSlots?.Count ?? 0) > 0 &&
+                     MathF.Abs(concordPrimaryCheck.AttackDamage - ConcordRaiderPrimaryDamage) < 1e-4f &&
+                     concordPrimaryCheck.ProjectilesCount == ConcordRaiderPrimaryProjectiles &&
+                     concordPrimaryCheck.AmmoType.FormKey == new FormKey(SfEsm, SfRaiderAmmoId) &&
+                     concordPrimaryCheck.AmmoList.IsNull,
+                     $"R13 E3: WEAP 0x{ConcordRaiderPrimaryWeapId:X} is not non-playable {ConcordRaiderPrimaryWeapEdid} (Name=\"Coachman\", NonPlayable=true, non-empty ObjectTemplates & AttachParentSlots, AttackDamage={ConcordRaiderPrimaryDamage}, ProjectilesCount={ConcordRaiderPrimaryProjectiles}, AmmoType=0x{SfRaiderAmmoId:X}, AmmoList=null)");
+                Need(props.TryGetValue("RaiderWeapon", out var rwp) && rwp is SF.IScriptObjectPropertyGetter rwo && rwo.Object.FormKey == new FormKey(key, ConcordRaiderPrimaryWeapId) &&
                      props.TryGetValue("RaiderAmmo", out var rap) && rap is SF.IScriptObjectPropertyGetter rao && rao.Object.FormKey == new FormKey(SfEsm, SfRaiderAmmoId),
-                     "FO4SF_Min00 lacks RaiderWeapon (Coachman) or RaiderAmmo (AmmoShotshell) bindings");
+                     $"R13 E3: FO4SF_Min00 lacks RaiderWeapon (0x{ConcordRaiderPrimaryWeapId:X}) or RaiderAmmo (AmmoShotshell) bindings");
+                var concordSidearmCheck = plug.Weapons.FirstOrDefault(w => w.FormKey == new FormKey(key, ConcordRaiderSidearmWeapId));
+                Need(concordSidearmCheck is { EditorID: ConcordRaiderSidearmWeapEdid } &&
+                     concordSidearmCheck.Name?.String == "Eon" &&
+                     concordSidearmCheck.MajorFlags.HasFlag(SF.Weapon.MajorFlag.NonPlayable) &&
+                     concordSidearmCheck.NonPlayable &&
+                     (concordSidearmCheck.ObjectTemplates?.Count ?? 0) > 0 &&
+                     (concordSidearmCheck.AttachParentSlots?.Count ?? 0) > 0 &&
+                     MathF.Abs(concordSidearmCheck.AttackDamage - ConcordRaiderSidearmDamage) < 1e-4f &&
+                     concordSidearmCheck.ProjectilesCount == ConcordRaiderSidearmProjectiles &&
+                     concordSidearmCheck.AmmoType.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId) &&
+                     concordSidearmCheck.AmmoList.IsNull,
+                     $"R11/R13 E3: WEAP 0x{ConcordRaiderSidearmWeapId:X} is not non-playable {ConcordRaiderSidearmWeapEdid} (Name=\"Eon\", NonPlayable=true, non-empty ObjectTemplates & AttachParentSlots, AttackDamage={ConcordRaiderSidearmDamage}, ProjectilesCount={ConcordRaiderSidearmProjectiles}, AmmoType=0x{SfRaiderSidearmAmmoId:X}, AmmoList=null)");
+                Need(props.TryGetValue("RaiderSidearm", out var rswp) && rswp is SF.IScriptObjectPropertyGetter rswo && rswo.Object.FormKey == new FormKey(key, ConcordRaiderSidearmWeapId) &&
+                     props.TryGetValue("RaiderSidearmAmmo", out var rsap) && rsap is SF.IScriptObjectPropertyGetter rsao && rsao.Object.FormKey == new FormKey(SfEsm, SfRaiderSidearmAmmoId),
+                     $"R11 D3/E3: FO4SF_Min00 lacks RaiderSidearm (0x{ConcordRaiderSidearmWeapId:X}) or RaiderSidearmAmmo (Ammo777mm) bindings");
+                float wantPrimaryRecDmg = concordPrimaryCheck is null ? ConcordRaiderPrimaryDamage : concordPrimaryCheck.AttackDamage * Math.Max(1, (int)concordPrimaryCheck.ProjectilesCount);
+                float wantSidearmRecDmg = concordSidearmCheck is null ? ConcordRaiderSidearmDamage : concordSidearmCheck.AttackDamage * Math.Max(1, (int)concordSidearmCheck.ProjectilesCount);
+                Need(props.TryGetValue("RaiderPrimaryRecordDamage", out var rprd) && rprd is SF.IScriptFloatPropertyGetter rprdf && MathF.Abs(rprdf.Data - wantPrimaryRecDmg) < 1e-4f,
+                     $"R13 E3: FO4SF_Min00 RaiderPrimaryRecordDamage != {wantPrimaryRecDmg}");
+                Need(props.TryGetValue("RaiderSidearmRecordDamage", out var rsrd) && rsrd is SF.IScriptFloatPropertyGetter rsrdf && MathF.Abs(rsrdf.Data - wantSidearmRecDmg) < 1e-4f,
+                     $"R13 E3: FO4SF_Min00 RaiderSidearmRecordDamage != {wantSidearmRecDmg}");
                 if (alias)
                 {
                     CheckTalkMessages(new[]
@@ -1921,6 +2272,15 @@ static class Mission
                     }, QuestEdid);
                     Need(props.TryGetValue("PrestonTalkScene", out var sp) && sp is SF.IScriptObjectPropertyGetter spo && spo.Object.FormKey == new FormKey(key, PrestonTalkSceneId),
                          "property PrestonTalkScene not bound to 0x900");
+                    if (codsworth)
+                    {
+                        Need(props.TryGetValue("PrestonPostTalkScene", out var psp) && psp is SF.IScriptObjectPropertyGetter pspo && pspo.Object.FormKey == new FormKey(key, PrestonPostTalkSceneId),
+                             $"property PrestonPostTalkScene not bound to 0x{PrestonPostTalkSceneId:X}");
+                    }
+                    else
+                    {
+                        Need(!props.ContainsKey("PrestonPostTalkScene"), "--no-codsworth binds PrestonPostTalkScene");
+                    }
                     Need(props.TryGetValue("TalkUseMessageBox", out var ptg) && ptg is SF.IScriptObjectPropertyGetter ptgo && ptgo.Object.FormKey == new FormKey(key, MissionTalkUseMessageBoxGlobId),
                          "FO4SF_Min00 lacks TalkUseMessageBox -> 0x979 binding");
                     Need(props.TryGetValue("PrestonTalkMsg", out var ptm) && ptm is SF.IScriptObjectPropertyGetter ptmo && ptmo.Object.FormKey == new FormKey(key, PrestonTalkMsgId) &&
@@ -1950,22 +2310,33 @@ static class Mission
             if (kq is null) problems.Add($"no QUST 0x{KeeperQuestId:X} {KeeperEdid}");
             else
             {
-                Console.WriteLine($"  QUST {kq.EditorID} flags {kq.Data?.Flags} stages {kq.Stages.Count} dials {kq.DialogTopics.Count}");
+                Console.WriteLine($"  QUST {kq.EditorID} flags {kq.Data?.Flags} stages {kq.Stages.Count} dials {kq.DialogTopics.Count} scenes {kq.Scenes.Count}");
                 Need(kq.EditorID == KeeperEdid && NonStartGameReady(kq) && !kq.Data!.Flags.HasFlag(SF.Quest.Flag.RunOnce) &&
-                     !kq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud),
-                     $"{KeeperEdid} must NOT carry StartGameEnabled, StartsEnabled, 0x10000, RunOnce, or DisplaysInHud");
+                     !kq.Data.Flags.HasFlag(SF.Quest.Flag.DisplaysInHud) &&
+                     kq.Data.Flags.HasFlag(SF.Quest.Flag.AllowRepeatedStages) &&
+                     kq.Data.Flags.HasFlag(SF.Quest.Flag.HasDialogueData),
+                     $"{KeeperEdid} flags invalid (must carry AllowRepeatedStages | HasDialogueData without StartGameEnabled/StartsEnabled/0x10000/RunOnce/DisplaysInHud)");
+                var kAliases = (kq.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().ToList();
+                var kAl0 = kAliases.FirstOrDefault(a => a.ID == KeeperPrestonAlias);
+                var kAl1 = kAliases.FirstOrDefault(a => a.ID == KeeperCodsworthAlias);
+                Need(kAl0 is not null && kAl0.ForcedReference.FormKey == preston?.FormKey && (kAl0.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional) &&
+                     kAl1 is not null && kAl1.ForcedReference.FormKey == codsRef?.FormKey && (kAl1.Flags ?? 0).HasFlag(SF.AQuestAlias.Flag.Optional),
+                     $"{KeeperEdid} lacks forced Optional aliases 0 (Preston) and 1 (Codsworth)");
+
+                int expectedKeeperDials = (codsworthVoice is null ? 0 : 1) + (alias ? 3 : 0) + 3;
+                Need(kq.DialogTopics.Count == expectedKeeperDials,
+                     $"{KeeperEdid} DIAL count {kq.DialogTopics.Count} != {expectedKeeperDials}");
                 var helloDial = kq.DialogTopics.FirstOrDefault(d => d.FormKey == new FormKey(key, CodsworthDialId));
                 if (codsworthVoice is null)
                 {
-                    Need(helloDial is null && kq.DialogTopics.Count == 0 && !kq.Data!.Flags.HasFlag(SF.Quest.Flag.HasDialogueData),
-                         $"unexpected DIAL on {KeeperEdid} without --codsworth-voice");
+                    Need(helloDial is null, $"unexpected Hello DIAL 0x{CodsworthDialId:X} on {KeeperEdid} without --codsworth-voice");
                 }
                 else
                 {
                     var want = VoiceLines(codsworthVoice);
                     var wantVoiceKey = new FormKey(key, CodsworthVoiceId);
                     Console.WriteLine($"  DIAL {helloDial?.EditorID} {helloDial?.Category}/{helloDial?.Subtype}/{helloDial?.SubtypeName} infos {helloDial?.Responses.Count}");
-                    Need(kq.Data!.Flags.HasFlag(SF.Quest.Flag.HasDialogueData) && kq.DialogTopics.Count == 1 &&
+                    Need(kq.Data!.Flags.HasFlag(SF.Quest.Flag.HasDialogueData) &&
                          helloDial is { EditorID: CodsworthDialEdid, FormVersion: 581, Subtype: SF.DialogTopic.SubtypeEnum.Hello, SubtypeName: SF.DialogTopic.SubtypeNameEnum.Hello } &&
                          helloDial.Quest.FormKey == kq.FormKey,
                          $"DIAL 0x{CodsworthDialId:X} is not his FormVersion-581 Hello topic on {KeeperEdid}");
@@ -1984,6 +2355,64 @@ static class Mission
                              $"INFO 0x{FirstCodsworthInfoId + i:X} is not voiced TROT FormVersion-581 line {want[i].Fo4Info}_{want[i].Response}");
                     }
                 }
+
+                // R11 Part 3 Step 3: Verify non-completing repeat 1-choice post scenes on keeper (0x990 Preston alias 0, 0x9C0 Codsworth alias 1)
+                void CheckPostScene(
+                    uint postSceneId, string postSceneEdid, uint postGreetTopicId, uint wantAliasId,
+                    FormKey gateQuestKey, float gateStage,
+                    FormKey speakerVoiceKey, SF.IQuestGetter? primaryQuest, uint primaryGreetTopicId)
+                {
+                    var pscn = kq.Scenes.FirstOrDefault(x => x.FormKey == new FormKey(key, postSceneId));
+                    Need(pscn is { EditorID: var ed } && ed == postSceneEdid, $"{KeeperEdid} lacks post scene 0x{postSceneId:X} {postSceneEdid}");
+                    if (pscn is null) return;
+                    uint pf = (uint)(pscn.Flags ?? 0);
+                    Need((pf & 0x2000u) == 0 && pf == 0x1814u && pscn.DEVT && pscn.SCPI is null,
+                         $"{postSceneEdid} invalid flags/DEVT/SCPI");
+                    Need(pscn.Actors.Count == 1 && pscn.Actors[0].ID == wantAliasId,
+                         $"{postSceneEdid} SceneActor ID != {wantAliasId}");
+                    var wantGlobSig = CondSig(GlobalIsZero(new FormKey(key, MissionTalkUseMessageBoxGlobId)));
+                    var wantStageSig = CondSig(QuestStageCond(gateQuestKey, SF.CompareOperator.GreaterThanOrEqualTo, gateStage));
+                    var condSigs = pscn.Conditions.Select(CondSig).ToHashSet();
+                    Need(condSigs.Contains(wantGlobSig) && condSigs.Contains(wantStageSig),
+                         $"{postSceneEdid} lacks GlobalIsZero(0x979) or GetStage >= {gateStage} condition");
+                    var da = pscn.Actions?.OfType<SF.IDialogueSceneActionGetter>().FirstOrDefault();
+                    var pda = pscn.Actions?.OfType<SF.IPlayerDialogueSceneActionGetter>().FirstOrDefault();
+                    Need(da is not null && da.AliasID == (int)wantAliasId &&
+                         pda is not null && pda.AliasID == (int)wantAliasId && pda.DialogueTargetActor == (int)wantAliasId &&
+                         pda.DialogueList.Count == 1,
+                         $"{postSceneEdid} actions do not target alias {wantAliasId} with 1 post-mission exit choice");
+                    var gInfo = kq.DialogTopics.FirstOrDefault(t => t.FormKey == new FormKey(key, postGreetTopicId))?.Responses.FirstOrDefault();
+                    if (gInfo is null) problems.Add($"{postSceneEdid} lacks greeting INFO");
+                    else
+                    {
+                        CheckSceneResponsesAndTrot(gInfo, null, speakerVoiceKey, $"{postSceneEdid} greeting INFO");
+                        var primGreet = primaryQuest?.DialogTopics.FirstOrDefault(t => t.FormKey == new FormKey(key, primaryGreetTopicId))
+                            ?.Responses.FirstOrDefault()?.Responses.FirstOrDefault()?.ResponseText?.String;
+                        var postGreetTxt = gInfo.Responses.FirstOrDefault()?.ResponseText?.String;
+                        Need(!string.IsNullOrWhiteSpace(postGreetTxt) && !string.Equals(postGreetTxt, primGreet, StringComparison.Ordinal),
+                             $"{postSceneEdid} replays primary first-meeting greeting");
+                    }
+                    if (pda is not null && pda.DialogueList.Count == 1)
+                    {
+                        var pcInfo = kq.DialogTopics.First(t => t.FormKey == pda.DialogueList[0].PlayerChoice.FormKey).Responses.First();
+                        var rpInfo = kq.DialogTopics.First(t => t.FormKey == pda.DialogueList[0].NpcResponse.FormKey).Responses.First();
+                        Need(pcInfo.Flags is { Flags: 0 } && pcInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low &&
+                             rpInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low,
+                             $"{postSceneEdid} exit choice lacks ENAM=0 / INAM=Low");
+                        Need(rpInfo.SetParentQuestStage is null, $"{postSceneEdid} exit choice must not set parent quest stage");
+                        CheckSceneResponsesAndTrot(rpInfo, null, speakerVoiceKey, $"{postSceneEdid} reply 0");
+                        Need(rpInfo.Flags?.Flags == 1, $"{postSceneEdid} exit choice lacks Goodbye flag");
+                    }
+                }
+                int wantPostSceneCount = alias ? 2 : 1;
+                Need(kq.Scenes.Count == wantPostSceneCount, $"{KeeperEdid} scene count {kq.Scenes.Count} != {wantPostSceneCount}");
+                if (alias)
+                {
+                    CheckPostScene(PrestonPostTalkSceneId, PrestonPostTalkSceneEdid, PrestonPostGreetTopicId, KeeperPrestonAlias,
+                                   new FormKey(key, QuestId), 200f, npc?.Voice.FormKey ?? FormKey.Null, q, PrestonGreetTopicId);
+                }
+                CheckPostScene(CodsworthPostSceneId, CodsworthPostSceneEdid, CodsworthPostGreetTopicId, KeeperCodsworthAlias,
+                               new FormKey(key, CodsworthQuestId), 100f, new FormKey(key, CodsworthVoiceId), cwq, CodsworthGreetTopicId);
                 var ks = kq.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == ScriptName);
                 if (ks is null) problems.Add($"script {ScriptName} not attached to {KeeperEdid}");
                 else
@@ -2024,6 +2453,7 @@ static class Mission
                     var cprops = cws.Properties.ToDictionary(p => p.Name);
                     Need(cprops.TryGetValue("Codsworth", out var cwp) && cwp is SF.IScriptObjectPropertyGetter cwo && cwo.Object.FormKey == codsRef?.FormKey &&
                          cprops.TryGetValue("CodsworthScene", out var csp) && csp is SF.IScriptObjectPropertyGetter cso && cso.Object.FormKey == new FormKey(key, CodsworthSceneId) &&
+                         cprops.TryGetValue("CodsworthPostScene", out var cpsp) && cpsp is SF.IScriptObjectPropertyGetter cpso && cpso.Object.FormKey == new FormKey(key, CodsworthPostSceneId) &&
                          cprops.TryGetValue("CodsworthTalkActi", out var cap) && cap is SF.IScriptObjectPropertyGetter cao && cao.Object.FormKey == new FormKey(key, CodsworthTalkActiId) &&
                          cprops.TryGetValue("CodsworthTalkMsg", out var cmp) && cmp is SF.IScriptObjectPropertyGetter cmo && cmo.Object.FormKey == new FormKey(key, CodsworthTalkMsgId) &&
                          cprops.TryGetValue("CodsworthReply0Msg", out var cr0) && cr0 is SF.IScriptObjectPropertyGetter cr0o && cr0o.Object.FormKey == new FormKey(key, CodsworthReply0MsgId) &&
@@ -2062,6 +2492,9 @@ static class Mission
                             var pTxt = pcInfo.Prompt?.String ?? "";
                             var rTxt = pcInfo.Responses.FirstOrDefault()?.ResponseText?.String ?? "";
                             Need(pTxt.Length > 0 && pTxt == rTxt, $"{CodsworthQuestEdid} choice {ci} does not show full player line in both Prompt and ResponseText");
+                            Need(pcInfo.Flags is { Flags: 0 } && pcInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low &&
+                                 rpInfo.SubtitlePriority == SF.DialogResponses.SubtitlePriorityLevel.Low,
+                                 $"R11 D5: {CodsworthQuestEdid} choice {ci} lacks explicit ENAM (Flags=0, DoNotGrayOut clear) or INAM SubtitlePriority=Low");
                             Need(rpInfo.SetParentQuestStage?.OnEnd == CodsworthChoiceEndStages[ci],
                                  $"{CodsworthQuestEdid} choice {ci} OnEnd != {CodsworthChoiceEndStages[ci]}");
                             uint wantWem = mqSpec?.ChoiceReplyWems[ci] ?? 0u;
@@ -2152,8 +2585,37 @@ static class Mission
         sf.Outfits.Add(new SF.Outfit(new FormKey(SfEsm, SfPrestonOutfitId), rel) { EditorID = SfPrestonOutfitEdid });
         sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfPrestonWeaponId), rel) { EditorID = SfPrestonWeaponEdid });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfPrestonAmmoId), rel) { EditorID = SfPrestonAmmoEdid });
-        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderWeaponId), rel) { EditorID = SfRaiderWeaponEdid });
+        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderWeaponId), rel)
+        {
+            EditorID = SfRaiderWeaponEdid,
+            AttackDamage = 52f,
+            ProjectilesCount = 5,
+            AttachParentSlots = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> { new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, 0x05D4E7)) },
+            ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() },
+        });
         sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderAmmoId), rel) { EditorID = SfRaiderAmmoEdid });
+        sf.Weapons.Add(new SF.Weapon(new FormKey(SfEsm, SfRaiderSidearmId), rel)
+        {
+            EditorID = SfRaiderSidearmEdid,
+            AttackDamage = 10f,
+            ProjectilesCount = 1,
+            AttachParentSlots = new ExtendedList<IFormLinkGetter<SF.IKeywordGetter>> { new FormLink<SF.IKeywordGetter>(new FormKey(SfEsm, 0x05D4E7)) },
+            ObjectTemplates = new ExtendedList<SF.ObjectTemplate<SF.Weapon.Property>> { new SF.ObjectTemplate<SF.Weapon.Property>() },
+        });
+        sf.Ammunitions.Add(new SF.Ammunition(new FormKey(SfEsm, SfRaiderSidearmAmmoId), rel) { EditorID = SfRaiderSidearmAmmoEdid });
+        var modelADat3 = new byte[61];
+        modelADat3[24] = 2;
+        modelADat3[28] = 3;
+        modelADat3[32] = 1;
+        BitConverter.TryWriteBytes(modelADat3.AsSpan(33, 4), 1.0f);
+        var modelARace = new SF.Race(new FormKey(SfEsm, SfModelARaceId), rel)
+        {
+            EditorID = SfModelARaceEdid,
+            Size = SF.Size.Large,
+            Flags = SF.Race.Flag.AllowPcDialog | SF.Race.Flag.HeadAxisBit0 | (SF.Race.Flag)0x0080000000000000UL,
+            DAT2Unknown3 = modelADat3,
+        };
+        sf.Races.Add(modelARace);
         sf.Npcs.Add(new SF.Npc(new FormKey(SfEsm, SfPapaKatzId), rel)
         {
             EditorID = SfPapaKatzEdid, Name = "Synthetic Male Template",
@@ -2169,7 +2631,16 @@ static class Mission
         });
 
         // Codsworth's Garden Mini Bot body (intentionally lacks AllowPcDialog & AllowDefaultDialog in vanilla, which Write fixes)
-        var race = new SF.Race(new FormKey(SfEsm, 0x900), rel) { EditorID = "MiniBotARace" };
+        var miniBotDialogueQuest = new SF.Quest(new FormKey(SfEsm, 0x225314), rel) { EditorID = "DialogueMiniBot" };
+        sf.Quests.Add(miniBotDialogueQuest);
+        var race = new SF.Race(new FormKey(SfEsm, 0x900), rel)
+        {
+            EditorID = "MiniBotARace",
+            Size = SF.Size.Small,
+            Flags = SF.Race.Flag.TiltFrontBack,
+            DialogueQuest = new FormLinkNullable<SF.IQuestGetter>(miniBotDialogueQuest.FormKey),
+            DAT2Unknown3 = new byte[61],
+        };
         sf.Races.Add(race);
         var botVoice = new SF.VoiceType(new FormKey(SfEsm, 0x903), rel) { EditorID = "RobotMiniBotA", Flags = 0 };
         sf.VoiceTypes.Add(botVoice);
@@ -2241,6 +2712,26 @@ static class Mission
             if (rc != 0) return rc;
             rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, alias);
             if (rc != 0) return rc;
+        }
+        {
+            var o = Path.Combine(outDir, "codsworth_race_framing");
+            int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, codsworthRaceFraming: true);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: true);
+            if (rc != 0) return rc;
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: false) == 0)
+                { Console.WriteLine("FAIL  check passed --codsworth-race-framing 1 plugin under default 0 mode"); return 1; }
+            if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: true) == 0)
+                { Console.WriteLine("FAIL  check passed default --codsworth-race-framing 0 plugin under 1 mode"); return 1; }
+            var vmod = SF.StarfieldMod.CreateFromBinary(Path.Combine(o, Plugin), rel, Styles(SfEsm, coreKey, raiderKey));
+            vmod.Races[new FormKey(vmod.ModKey, CodsworthRaceId)].Size = SF.Size.Small;
+            var vmd = Path.Combine(outDir, "codsworth_race_framing_mutated");
+            Directory.CreateDirectory(vmd);
+            var vlo = new[] { SfEsm, coreKey, raiderKey };
+            vmod.BeginWrite.ToPath(Path.Combine(vmd, Plugin)).WithLoadOrder(vlo)
+                .WithKnownMasters(vlo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+            if (Check(Path.Combine(vmd, Plugin), sfPath, corePath, raiderPath, true, true, codsworthRaceFraming: true) == 0)
+                { Console.WriteLine("FAIL  check passed mutated --codsworth-race-framing 1 plugin (Size.Small)"); return 1; }
+            Console.WriteLine("mutation rejected: Codsworth race reverted to Size.Small (--codsworth-race-framing 1)");
         }
         {
             var o = Path.Combine(outDir, "nocodsworth");
@@ -2355,6 +2846,32 @@ static class Mission
             ("FO4SF_Codsworth01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, CodsworthQuestId))),
             ("FO4SF_Sanctuary01 removed", m => m.Quests.Remove(new FormKey(m.ModKey, SanctuaryQuestId))),
             ("Codsworth race lacks AllowPcDialog", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Flags &= ~SF.Race.Flag.AllowPcDialog),
+            ("Codsworth race leaked Size.Medium into default 0 build (Review Item #6)", m => m.Races[new FormKey(m.ModKey, CodsworthRaceId)].Size = SF.Size.Medium),
+            ("Min00 missing RaiderSidearm property (D3)", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "RaiderSidearm")),
+            ("R13 E3 Min00 RaiderWeapon reverted to vanilla Coachman 0x26D96B", m => ((SF.ScriptObjectProperty)Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "RaiderWeapon")).Object.SetTo(new FormKey(SfEsm, SfRaiderWeaponId))),
+            ("R13 E3 Min00 missing RaiderPrimaryRecordDamage property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "RaiderPrimaryRecordDamage")),
+            ("R13 E3 Min00 RaiderSidearmRecordDamage mutated", m => ((SF.ScriptFloatProperty)Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "RaiderSidearmRecordDamage")).Data = 3.0f),
+            ("R13 E3 ConcordRaiderPrimary 0x97B AttackDamage reverted to 52", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].AttackDamage = 52f),
+            ("R13 E3 ConcordRaiderPrimary 0x97B ProjectilesCount reverted to 5", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].ProjectilesCount = 5),
+            ("R13 E3 ConcordRaiderPrimary 0x97B stripped ObjectTemplates", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].ObjectTemplates = null),
+            ("R13 E3 ConcordRaiderPrimary 0x97B cleared AttachParentSlots", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)].AttachParentSlots?.Clear()),
+            ("R13 E3 ConcordRaiderPrimary 0x97B marked playable", m => { var pw = m.Weapons[new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId)]; pw.MajorFlags &= ~SF.Weapon.MajorFlag.NonPlayable; pw.NonPlayable = false; }),
+            ("R13 E3 ConcordRaiderPrimary 0x97B removed", m => m.Weapons.Remove(new FormKey(m.ModKey, ConcordRaiderPrimaryWeapId))),
+            ("E3 ConcordRaiderSidearm 0x97A AttackDamage reverted to 10", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].AttackDamage = 10f),
+            ("E3 ConcordRaiderSidearm 0x97A stripped ObjectTemplates", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].ObjectTemplates = null),
+            ("E3 ConcordRaiderSidearm 0x97A cleared AttachParentSlots", m => m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)].AttachParentSlots?.Clear()),
+            ("E3 ConcordRaiderSidearm 0x97A marked playable", m => { var sw = m.Weapons[new FormKey(m.ModKey, ConcordRaiderSidearmWeapId)]; sw.MajorFlags &= ~SF.Weapon.MajorFlag.NonPlayable; sw.NonPlayable = false; }),
+            ("E3 ConcordRaiderSidearm 0x97A removed", m => m.Weapons.Remove(new FormKey(m.ModKey, ConcordRaiderSidearmWeapId))),
+            ("R13 E3 Holding CELL 0xB60 FULL reverted to FO4SF prefix", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First(c => c.FormKey.ID == MissionHoldingCellId).Name = "FO4SF Mission Holding Cell"),
+            ("Preston post scene 0x990 removed from keeper", m => Keeper(m).Scenes.RemoveAll(s => s.FormKey.ID == PrestonPostTalkSceneId)),
+            ("Codsworth post scene 0x9C0 removed from keeper", m => Keeper(m).Scenes.RemoveAll(s => s.FormKey.ID == CodsworthPostSceneId)),
+            ("Codsworth post scene 0x9C0 wrong alias ID 0", m => Keeper(m).Scenes.First(s => s.FormKey.ID == CodsworthPostSceneId).Actors[0].ID = 0),
+            ("Preston post scene 0x990 sets quest stage", m => Keeper(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonPostReplyTopicId).Responses[0].SetParentQuestStage = new SF.DialogSetParentQuestStage { OnBegin = -1, OnEnd = 35 }),
+            ("Codsworth post scene 0x9C0 replays primary greeting", m => Keeper(m).DialogTopics.First(t => t.FormKey.ID == CodsworthPostGreetTopicId).Responses[0].Responses[0].ResponseText = "Synthetic robot greeting."),
+            ("Min00 missing PrestonPostTalkScene property", m => Min00Q(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "PrestonPostTalkScene")),
+            ("Codsworth01 missing CodsworthPostScene property", m => Cods01(m).VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "CodsworthPostScene")),
+            ("Preston choice 0 missing ENAM flags (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = null),
+            ("Preston choice 0 sets DoNotGrayOut (D5)", m => Min00Q(m).DialogTopics.First(t => t.FormKey.ID == FirstPrestonChoiceTopicId).Responses[0].Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.DoNotGrayOut }),
             ("Codsworth voice lacks AllowDefaultDialog", m => m.VoiceTypes[new FormKey(m.ModKey, CodsworthVoiceId)].Flags &= ~SF.VoiceType.Flag.AllowDefaultDialog),
             ("Codsworth missing Talk prompt", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].ActivateTextOverride = null),
             ("Codsworth retains DefaultTemplate", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].DefaultTemplate.SetTo(new FormKey(SfEsm, 0x902))),
@@ -2399,9 +2916,10 @@ static class Mission
             ("Codsworth alias not Optional", m => ((SF.QuestReferenceAlias)Cods01(m).Aliases![0]).Flags &= ~SF.AQuestAlias.Flag.Optional),
             ("raider alias lacks combat package", m => ((SF.QuestReferenceAlias)Min00Q(m).Aliases![1]).PackageData.Clear()),
             ("raider alias lacks AmmoShotshell", m => ((SF.QuestReferenceAlias)Min00Q(m).Aliases![1]).Items?.Clear()),
+            ("Task 1i WRLD override leaked into FO4SFMission.esm", m => m.Worldspaces.Add(new SF.Worldspace(new FormKey(coreKey, 0x803), rel) { EditorID = World })),
             ("raider ACHR reverted to unmerged coords", m =>
             {
-                var r0 = m.Worldspaces.First().TopCell!.Persistent.OfType<SF.PlacedNpc>().First(r => r.FormKey.ID == FirstRaiderRefId);
+                var r0 = PersistentNpcRefsMutable(m).First(r => r.FormKey.ID == FirstRaiderRefId);
                 r0.Position = new P3Float(-829.06f, 1008.31f, 88.09f);
             }),
             ("Preston non-ending reply lacks INTV=1", m => Min00Q(m).DialogTopics.First(d => d.FormKey.ID == FirstPrestonReplyTopicId).Responses[0].INTV = null),
@@ -2410,9 +2928,9 @@ static class Mission
             ("Codsworth NPC_ and ACHR removed", m =>
             {
                 m.Npcs.Remove(new FormKey(m.ModKey, CodsworthNpcId));
-                m.Worldspaces.First().TopCell!.Persistent.RemoveAll(r => r.FormKey.ID == CodsworthRefId);
+                m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First().Persistent.RemoveAll(r => r.FormKey.ID == CodsworthRefId);
             }),
-            ("Codsworth ACHR removed", m => m.Worldspaces.First().TopCell!.Persistent.RemoveAll(r => r.FormKey.ID == CodsworthRefId)),
+            ("Codsworth ACHR removed", m => m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells).First().Persistent.RemoveAll(r => r.FormKey.ID == CodsworthRefId)),
             ("Codsworth not Essential", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Essential),
             ("Codsworth not Unique", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Unique),
             ("Codsworth respawns", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags |= SF.Npc.Flag.Respawn),

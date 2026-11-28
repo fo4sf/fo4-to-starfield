@@ -50,7 +50,19 @@ MARS_PLUGIN = "FO4TerrainCore_Mars.esm"
 HOME_MASTER_PLUGIN = "FO4SFHome.esm"
 HOME_REG_PLUGIN = "FO4TerrainCore_Home.esm"
 MAP_MARKERS_PLUGIN = hspec.MAP_MARKERS_PLUGIN
+PORT_PLUGIN = hspec.PORT_PLUGIN
 GAME_EXE = "Starfield.exe"
+
+
+def core_values_weather_flags(program_cs_path: str) -> List[str]:
+    """Return `['--commonwealth-weather', '0']` when CoreValues exposes `--commonwealth-weather`, else `[]`."""
+    try:
+        with open(program_cs_path, encoding="utf-8") as f:
+            if "--commonwealth-weather" in f.read():
+                return ["--commonwealth-weather", "0"]
+    except OSError:
+        pass
+    return []
 
 
 def _active_game_pids(system: Any = None) -> List[int]:
@@ -130,6 +142,7 @@ def validate_active_load_order(
     active_ours = [p for p in loadset.active_plugins(lines) if loadset.ours(p)]
     active_low = [p.casefold() for p in active_ours]
     mm_low = map_markers_plugin_name.casefold()
+    port_low = PORT_PLUGIN.casefold()
     hm_low = HOME_MASTER_PLUGIN.casefold()
     hr_low = HOME_REG_PLUGIN.casefold()
 
@@ -141,6 +154,15 @@ def validate_active_load_order(
                 problems.append(
                     f"invalid load order: {mm_disp} loads after {tgt_disp}; "
                     f"{HOME_MASTER_PLUGIN} and {HOME_REG_PLUGIN} must load after {mm_disp}"
+                )
+    if port_low in active_low:
+        port_idx = active_low.index(port_low)
+        port_disp = active_ours[port_idx]
+        for tgt_low, tgt_disp in ((hm_low, HOME_MASTER_PLUGIN), (hr_low, HOME_REG_PLUGIN)):
+            if tgt_low in active_low and active_low.index(tgt_low) < port_idx:
+                problems.append(
+                    f"invalid load order: {port_disp} loads after {tgt_disp}; "
+                    f"{HOME_MASTER_PLUGIN} and {HOME_REG_PLUGIN} must load after {port_disp}"
                 )
     if hm_low in active_low and hr_low in active_low and active_low.index(hr_low) < active_low.index(hm_low):
         problems.append(f"invalid load order: {HOME_REG_PLUGIN} loads before its master {HOME_MASTER_PLUGIN}")
@@ -176,6 +198,10 @@ def validate_active_load_order(
     for op in ov_probs:
         if op not in problems:
             problems.append(op)
+    mars_probs, _ = hspec.audit_zero_mars_references(plugin_paths)
+    for mp in mars_probs:
+        if mp not in problems:
+            problems.append(mp)
     return problems
 
 

@@ -5370,7 +5370,7 @@
         "Fallout3.esm"
       ],
       "source_worldspace": {
-        "edid": null,
+        "edid": "Wasteland",
         "form_id": null,
         "defining_plugin": "Fallout3.esm",
         "parent_world": null
@@ -5386,14 +5386,19 @@
       "planned_starfield_world": {
         "world_edid": "FO4CW_CapitalWasteland",
         "plugin": "FO4CapitalWasteland.esm",
-        "tile_cells": null,
-        "cell_count": null,
+        "tile_cells": 64,
+        "cell_count": 4096,
         "host_planet": "FO4SFHomePlanet",
-        "planet_position": null,
+        "planet_position": [
+          0.678933079,
+          -1.344601656
+        ],
         "measured_merge_offset": null,
         "pipboy_plugin_code": 2,
         "map_picture": null,
-        "marker_index_range": null
+        "marker_index_range": null,
+        "reachability": "TEST-STATION (coc only)",
+        "coc_spawn": "FO3Core_Vault101ExitSpawn"
       },
       "status": {
         "terrain": {
@@ -5458,7 +5463,7 @@
         "FalloutNV.esm"
       ],
       "source_worldspace": {
-        "edid": null,
+        "edid": "WastelandNV",
         "form_id": null,
         "defining_plugin": "FalloutNV.esm",
         "parent_world": null
@@ -5474,14 +5479,19 @@
       "planned_starfield_world": {
         "world_edid": "FO4NV_MojaveWasteland",
         "plugin": "FO4Mojave.esm",
-        "tile_cells": null,
-        "cell_count": null,
+        "tile_cells": 64,
+        "cell_count": 4096,
         "host_planet": "FO4SFHomePlanet",
-        "planet_position": null,
+        "planet_position": [
+          0.631285591,
+          -2.009572091
+        ],
         "measured_merge_offset": null,
         "pipboy_plugin_code": 3,
         "map_picture": null,
-        "marker_index_range": null
+        "marker_index_range": null,
+        "reachability": "TEST-STATION (coc only)",
+        "coc_spawn": "FNVCore_GoodspringsSpawn"
       },
       "status": {
         "terrain": {

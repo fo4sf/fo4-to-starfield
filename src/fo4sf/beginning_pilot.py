@@ -153,7 +153,7 @@ SESSION2_SHEET_PASS_SPECS: Tuple[Tuple[str, str], ...] = (
     ("Card 2", "FO4SF_NEWGAME rt=<rt> start record mode=story story=fo4_commonwealth faction=-1 place=fo4_vault111 survival=0 difficulty=1 backdrop=empty_cell"),
     ("Card 2", f"FO4SF_NEWGAME rt=<rt> stage 10 by={CANONICAL_CAUSE_TRIGGER}"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 20 by=scene"),
-    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n>"),
+    ("Card 2", "FO4SF_NEWGAME rt=<rt> pistol picked item=<form> count=<n> equipped=<equipped>"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> pipboy pickup equipped flag=1 worn=true"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> cog door console activated ref=<ref> before=<s0> after=<s1>"),
     ("Card 2", "FO4SF_NEWGAME rt=<rt> stage 30 by=vault_console"),
