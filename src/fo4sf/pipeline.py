@@ -12,7 +12,7 @@ import os
 import re
 import struct
 import tempfile
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
@@ -40,6 +40,13 @@ LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\
 # BC5 normal map as colour: red/green stripes on Vault 111's gear door. In the 2026-10-11 build these were 9 of 11030
 # lighting shapes, all texture-set shapes; no FO4 .bgsm sets its own refraction byte.
 SLSF1_REFRACTION = 0x8000
+SLSF1_DYNAMIC_DECAL = 0x04000000
+SLSF1_DECAL = 0x08000000
+SLSF1_DECAL_MASK = SLSF1_DECAL | SLSF1_DYNAMIC_DECAL
+NI_ALPHA_BLEND_BIT = 0x0001
+NI_ALPHA_TEST_BIT = 0x0200
+DECAL_NORMAL_OFFSET_M = 0.002
+_DECAL_MAT_PREFIXES = ("decals/", "vadecals/", "fxdecals/", "texdecals/", "vatexdecals/")
 # nif.xml Fallout4ShaderPropertyFlags1 bit 4: GreyscaleToPalette_Color. The lighting shader
 # samples BSShaderTextureSet slot 3 (or the BGSM greyscale string when byte 62 is set) as a colour
 # ramp, using the diffuse green channel as U and GrayscaleToPaletteScale as V. Starfield has no
@@ -54,6 +61,40 @@ _FO4_RIM_FLT_MAX = 3.402823e38
 
 # nif.xml Fallout4ShaderPropertyFlags2 bit 5: Vertex_Colors. FO4 multiplies the texture alpha by the vertex alpha.
 SLSF2_VERTEX_COLORS = 0x20
+
+
+def parse_ni_alpha(src, alpha_ref: int) -> Tuple[bool, bool, int]:
+    """Read (alpha_blend, alpha_test, threshold) from an FO4 NiAlphaProperty block (BE/LE 15-byte layout)."""
+    if alpha_ref is None or alpha_ref < 0 or alpha_ref >= len(src.blocks):
+        return (False, False, 128)
+    if src.type_of(alpha_ref) != "NiAlphaProperty":
+        return (False, False, 128)
+    ab = src.blocks[alpha_ref]
+    if len(ab) < 15:
+        return (False, False, 128)
+    flags, thresh = struct.unpack_from("<HB", ab, 12)
+    return (bool(flags & NI_ALPHA_BLEND_BIT), bool(flags & NI_ALPHA_TEST_BIT), int(thresh))
+
+
+def is_decal_material_path(mat_path: Optional[str]) -> bool:
+    """True when a resolved Starfield material path lives under any decal output prefix."""
+    if not mat_path:
+        return False
+    norm = mat_path.replace("\\", "/").lower()
+    return any(f"/{p}" in norm or norm.startswith(p) for p in _DECAL_MAT_PREFIXES)
+
+
+def shape_normal_offset_m(shape, mat_path: Optional[str]) -> float:
+    """Return subtle surface normal bias (m) for flat planar decal quads that otherwise Z-fight at local z=0."""
+    if not is_decal_material_path(mat_path):
+        return 0.0
+    pts = getattr(shape, "positions", None) or ()
+    if not pts:
+        return 0.0
+    zs = [p[2] for p in pts]
+    if (max(zs) - min(zs)) < 0.01:
+        return DECAL_NORMAL_OFFSET_M
+    return 0.0
 
 
 def vertex_alpha_scale(blk: bytes, shape) -> Optional[float]:
@@ -506,19 +547,43 @@ class Converter:
         return self._materials[key]
 
     def texture_set_material(self, diffuse: str, normal: str, spec: str, greyscale: str = None,
-                             palette_scale: float = 1.0) -> Optional[str]:
+                             palette_scale: float = 1.0, decal: bool = False,
+                             alpha_test: bool = False, alpha_ref: int = 128,
+                             opacity_scale: float = 1.0) -> Optional[str]:
         """Material for a shape that names its textures directly (BSShaderTextureSet, no .bgsm). Cached by inputs."""
-        stem = "texsets/" + re.sub(r"^textures[\\/]", "", diffuse.replace("\\", "/"), flags=re.I).lower()
+        tex_rel = re.sub(r"^textures[\\/]", "", diffuse.replace("\\", "/"), flags=re.I).lower()
+        scaled = decal and opacity_scale < 1.0
+        if decal:
+            prefix = f"vatexdecals/a{round(opacity_scale * 255)}/" if scaled else "texdecals/"
+            key_prefix = "texdecal:"
+        elif alpha_test:
+            prefix = "texcutouts/"
+            key_prefix = "texcutout:"
+        else:
+            prefix = "texsets/"
+            key_prefix = "texset:"
+        stem = prefix + tex_rel
         parts = [diffuse, normal, spec]
         if greyscale:
             parts.append(greyscale)
             parts.append(_palette_scale_ident(palette_scale))
+        if decal:
+            parts.append(f"d:{round(opacity_scale * 255)}" if scaled else "d")
+        elif alpha_test:
+            parts.append(f"at:{int(alpha_ref)}")
         ident = "|".join(x.replace("\\", "/").lower() for x in parts)      # every input is part of identity
         stem = os.path.splitext(stem)[0] + "_" + hashlib.sha1(ident.encode()).hexdigest()[:8]
-        key = "texset:" + stem
+        key = key_prefix + stem
         if key not in self._materials:
             try:
                 extra = {"greyscale": greyscale, "palette_scale": palette_scale} if greyscale else {}
+                if decal:
+                    extra["decal"] = True
+                    if scaled:
+                        extra["opacity_scale"] = opacity_scale
+                elif alpha_test:
+                    extra["alpha_test"] = True
+                    extra["alpha_ref"] = int(alpha_ref)
                 self._materials[key] = self._convert_texture_set(stem, diffuse, normal, spec, **extra)
                 self.stats["materials_ok"] += 1
             except Exception as e:                        # noqa: BLE001
@@ -758,12 +823,26 @@ class Converter:
         diffuse = paths[0] if paths else ""
         normal = paths[1] if len(paths) > 1 else ""
         spec = paths[7] if len(paths) > 7 else ""
-        if not (diffuse and normal):
+        alpha_blend, alpha_test, alpha_thresh = parse_ni_alpha(src, getattr(s, "alpha_ref", -1))
+        is_decal = bool(flags1 & SLSF1_DECAL_MASK) or alpha_blend
+        if not (diffuse and (normal or is_decal)):
             return self.neutral
+        kw = {}
         if flags1 & SLSF1_GREYSCALE_TO_PALETTE_COLOR and len(paths) > 3 and paths[3]:
-            return self.texture_set_material(diffuse, normal, spec, greyscale=paths[3],
-                                             palette_scale=lighting_palette_scale(blk)) or self.neutral
-        return self.texture_set_material(diffuse, normal, spec) or self.neutral
+            kw["greyscale"] = paths[3]
+            kw["palette_scale"] = lighting_palette_scale(blk)
+        if is_decal:
+            scale = vertex_alpha_scale(blk, s)
+            if scale == 0.0:
+                return None
+            kw["decal"] = True
+            if scale is not None:
+                kw["opacity_scale"] = scale
+            return self.texture_set_material(diffuse, normal, spec, **kw)
+        if alpha_test:
+            kw["alpha_test"] = True
+            kw["alpha_ref"] = alpha_thresh
+        return self.texture_set_material(diffuse, normal, spec, **kw) or self.neutral
 
     def convert_nif(self, nif_name: str, pose: Optional[dict] = None, out_suffix: str = "") -> dict:
         """pose / out_suffix: a model for one placed reference (placed_pose): the NIF's bone nodes take these local
@@ -898,6 +977,7 @@ class Converter:
                 if animated and not aliases and not load_door and DOOR_RE.search(nif_name):
                     use_box = False
                     res["door_not_opening"] = "open animation not ported: passable"
+                shape_offsets = [shape_normal_offset_m(s, mats[idx]) for idx, s in enumerate(shapes)]
                 files = convert_static.convert_static(raw, out_name, material_paths=mats, collision_mode=mode,
                                                       include_skinned=True, report=coll_report,
                                                       sf_mesh_template=self.sf_mesh_template if use_box else None,
@@ -905,7 +985,8 @@ class Converter:
                                                       allow_guess=not no_guess,
                                                       dynamic_template=self.dynamic_template if use_box and nif_name.replace(
                                                           "/", "\\").lower() not in getattr(self, "static_body_models", ()) else None,
-                                                      pose=pose, mass_scale=self.mass_scale)
+                                                      pose=pose, mass_scale=self.mass_scale,
+                                                      shape_offsets_m=shape_offsets if any(shape_offsets) else None)
                 if coll_report.get("motion") == "dynamic":
                     res["movable"] = {"mass_kg": coll_report["mass_kg"],
                                       **({"note": coll_report["motion_note"]} if "motion_note" in coll_report else {})}
