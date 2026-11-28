@@ -81,6 +81,17 @@ SCREEN_NIFS = (SCREEN_NIF_M, SCREEN_NIF_F, SCREEN_NIF_1ST, SCREEN_NIF_1ST_F)
 SCREEN_MAT_REL = "materials/fo4port/pipboy/pipboy_screen_2d.mat"
 SCREEN_MAT_GAME = "materials\\fo4port\\pipboy\\pipboy_screen_2d.mat"
 SCREEN_GEOM_NAME = "PipboyScreen"
+# Housing BSGeometry names are f"{prefix}{k}" for these prefixes and k in 0..HOUSING_GROUP_INDEX_LAST.
+# stage_pipboy_wrist.rebind_pipboy_to_wrist writes f"{group_prefix}_{k}" (k = material-group index).
+# FO4 partition ids (_01, _11, _21) are not written. 2h-5 logged housing=false while the mesh drew
+# because LogPipboyWrist3DNodes asked HasNode for those partition ids (screen=true, name PipboyScreen).
+HOUSING_GROUP_PREFIXES = (
+    "FO4WristHousing1st_",
+    "FO4WristHousing1stF_",
+    "FO4WristHousingM_",
+    "FO4WristHousingF_",
+)
+HOUSING_GROUP_INDEX_LAST = 5
 SCREEN_TEX_PREFIX = "textures/fo4port/pipboy/pipboy_screen_idle"
 SCREEN_BGSM_PATH = "Materials\\AnimObjects\\PipBoy\\PipBoyScreen.BGSM"
 SCREEN_SWF_SHELL_REL = "Interface\\PipboyMenu.swf"

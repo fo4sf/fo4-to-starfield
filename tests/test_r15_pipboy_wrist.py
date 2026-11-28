@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -200,6 +201,19 @@ class TestR15PipboyWrist(unittest.TestCase):
             if parsed_h.type_of(i) == "BSGeometry"
         ]
         self.assertEqual(h_names.count(spw.SCREEN_GEOM_NAME), 1)
+        housing_geom_names = [n for n in h_names if n.startswith("FO4WristHousing")]
+        self.assertTrue(housing_geom_names, h_names)
+        with open(os.path.join(REPO, "scripts", "newgame", "FO4SF_NewGameQuest.psc"), encoding="utf-8") as psc_fh:
+            log_fn = re.search(
+                r"(?ms)^Function\s+LogPipboyWrist3DNodes\b.*?^EndFunction",
+                psc_fh.read(),
+            )
+        self.assertIsNotNone(log_fn)
+        for name in housing_geom_names:
+            self.assertIn(f'HasNode("{name}")', log_fn.group(0), h_names)
+        for prefix in spw.HOUSING_GROUP_PREFIXES:
+            for k in range(spw.HOUSING_GROUP_INDEX_LAST + 1):
+                self.assertIn(f'HasNode("{prefix}{k}")', log_fn.group(0))
 
         # Screen-only NIF has ONLY Screen:0 bound to pipboy_screen_2d.mat with BSGeometry name PipboyScreen
         self.assertEqual(list(screen_res.report["groups"].keys()), [spw.SCREEN_MAT_GAME])

@@ -94,8 +94,14 @@ class J8BatchesCardWristTests(unittest.TestCase):
             "FO4WristHousingM_",
         ):
             self.assertIn(prefix, body, f"LogPipboyWrist3DNodes missing prefix {prefix!r}")
-        for seg in ("01", "11", "21"):
-            self.assertIn(seg, body, f"LogPipboyWrist3DNodes missing bone suffix {seg!r}")
+            for k in range(6):
+                self.assertIn(
+                    f'HasNode("{prefix}{k}")',
+                    body,
+                    f"LogPipboyWrist3DNodes missing builder group index {prefix}{k}",
+                )
+        for stale in ("FO4WristHousing1st_21", "FO4WristHousingM_11", "FO4WristHousingF_01", "FO4WristHousing1stF_01"):
+            self.assertNotIn(stale, body, f"partition id {stale} is not a staged BSGeometry name")
 
     def test_generate_candidate_2h_card_is_deterministic_and_matches_committed_doc(self) -> None:
         rendered = generate_candidate_2h_card.render_candidate_2h_card()

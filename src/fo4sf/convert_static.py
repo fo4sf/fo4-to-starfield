@@ -10,7 +10,7 @@ import hashlib
 import math
 import struct
 from dataclasses import replace
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from . import nif as nifmod
 from . import sfcollision, sfmesh, sfnif
