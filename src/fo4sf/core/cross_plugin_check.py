@@ -24,7 +24,9 @@ ROUTE_LOOT_JSON_REL = os.path.join("src", "fo4sf", "loot", "route_loot_ids.json"
 # Known immutable engine/port base records referenced across scripts and writer tables
 KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     "Starfield.esm": {
+        0x00000A: ("MISC", "Digipick"),
         0x00000F: ("MISC", "Credits"),
+        0x000010: ("STAT", "MapMarker"),
         0x000014: ("ACHR", "PlayerRef"),
         0x000032: ("STAT", "COCMarkerHeading"),
         0x000038: ("GLOB", "GameHour"),
@@ -42,6 +44,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x0002DA: ("AVIF", "SpeedMult"),
         0x0002DC: ("AVIF", "CarryWeight"),
         0x0002E2: ("AVIF", "O2Capacity"),
+        0x0002D4: ("AVIF", "Health"),
         0x000344: ("AVIF", "FollowerState"),
         0x00036C: ("AVIF", "PerceptionCondition"),
         0x00036D: ("AVIF", "EnduranceCondition"),
@@ -50,6 +53,7 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x000370: ("AVIF", "LeftMobilityCondition"),
         0x000371: ("AVIF", "RightMobilityCondition"),
         0x000372: ("AVIF", "BrainCondition"),
+        0x0012E5: ("STAT", "RockPittedA"),
         0x003448: ("QUST", "MQ101"),
         0x00347D: ("RACE", "HumanRace"),
         0x00562D: ("DFOB", "StartupQuest_DO"),
@@ -62,56 +66,99 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
         0x01A21C: ("KYWD", "WorkshopItemKeyword"),
         0x01C21C: ("FACT", "PlayerFaction"),
         0x01D1D7: ("ARMO", "Clothes_Miner_Jumpsuit"),
+        0x01D1E7: ("ARMO", "Clothes_Miner_UtilitySuit"),
         0x028A02: ("WEAP", "Grendel"),
+        0x029C7A: ("ARMO", "Spacesuit_Miner_Backpack_NoBoostPack"),
         0x0301C5: ("PACK", "DefaultMaster_FollowPackage"),
         0x042240: ("PACK", "DefaultCombatMasterPackage"),
+        0x04297C: ("NPC_", "OutpostRobotMiniBotA_Garden"),
         0x047600: ("KYWD", "QuestTypeSideQuest"),
+        0x0476C4: ("WEAP", "Eon"),
         0x04AD3E: ("AMMO", "Ammo777mm"),
         0x04AD3F: ("AMMO", "Ammo11mm"),
+        0x04F760: ("WEAP", "RescueAxe"),
+        0x05278E: ("ARMO", "Spacesuit_Miner"),
+        0x052792: ("ARMO", "Spacesuit_Miner_Helmet"),
+        0x0546CD: ("WEAP", "Microgun"),
         0x0547A1: ("AMMO", "AmmoCaselessShotgun"),
         0x0547A3: ("WEAP", "Breach"),
         0x054BA7: ("KYWD", "WorkshopWorkbenchType"),
+        0x058606: ("FLST", "OutpostRecipeCategories"),
         0x081886: ("ARMA", "AA_MiniBotA_Gardening"),
         0x089605: ("PACK", "DefaultSandboxCurrentLocation"),
         0x0A7D31: ("GLOB", "MQ101Debug"),
         0x0AA209: ("KYWD", "WorkbenchIndustrialKeyword"),
         0x0B0885: ("SPEL", "abBoostAssaultSlowTime"),
+        0x0B120E: ("AVIF", "ActorShouldForceHideSpacesuit_AV"),
+        0x0C154F: ("IDLE", "IdleExamineWatch"),
+        0x0D4893: ("ARMO", "Clothes_Chronomark_Mq101_NOTPLAYABLE"),
+        0x1034AB: ("WTHS", "WeatherUniqueNA_Clear_Unique"),
+        0x104631: ("ARMO", "Spacesuit_Constellation_Backpack_01_NOTPLAYABLE"),
+        0x104632: ("ARMO", "Spacesuit_Constellation_Helmet_01_NOTPLAYABLE"),
         0x105688: ("CONT", "VaultCaseTemplate"),
+        0x13E8CA: ("STAT", "AK_Crate_WoodenSmall"),
+        0x1A5507: ("FLST", "OutpostFollowCameraCategoryList"),
         0x1A9565: ("QUST", "SQ_Groups"),
         0x1CCAC2: ("ACTI", "ControlConsoleTemplate"),
+        0x1E2B17: ("ARMO", "Spacesuit_Constellation_Helmet_01"),
+        0x1E2B18: ("ARMO", "Spacesuit_Constellation_01"),
+        0x1E2B19: ("ARMO", "Spacesuit_Constellation_Backpack_01"),
         0x1F50AD: ("KYWD", "OutpostBuildKeyword"),
         0x208E39: ("OTFT", "Outfit_FreestarRanger_Vest_with_Hat"),
+        0x22DB8F: ("KYWD", "NoDisintegrate"),
         0x24561C: ("WEAP", "Sidestar"),
         0x248D20: ("QUST", "SQ_ENV"),
+        0x26319B: ("EFSH", "CritLaserDisintegration"),
         0x26D96B: ("WEAP", "Coachman"),
         0x2773C8: ("WEAP", "Orion"),
+        0x27CF9B: ("WTHR", "NewAtlantisWeather50"),
         0x2B4AFB: ("AMMO", "AmmoShotshell"),
         0x2B558D: ("AMMO", "AmmoShotgun"),
         0x2B5598: ("AMMO", "Ammo27Caliber"),
         0x2B5599: ("AMMO", "Ammo45Caliber"),
         0x2B559A: ("AMMO", "Ammo50Caliber"),
         0x2C60E9: ("ACTI", "OutpostBeaconActivator"),
+        0x2EDF1F: ("ARMO", "Spacesuit_Miner_Backpack"),
         0x3FFD3A: ("ARMO", "Skin_MiniBotA_Gardening"),
     },
     "FO4Port.esm": {
+        0x0011A0: ("STAT", "FO4Port_Vault_Table_01"),
         0x0011F3: ("CELL", "FO4Port_Vault111Cryo"),
+        0x001338: ("REFR", ""),
+        0x001539: ("REFR", "FO4Port_ArmoryCageDoor"),
+        0x001617: ("REFR", ""),
         0x00E0D6: ("CONT", "FO4Port_VaultLocker"),
+        0x00E2F4: ("CELL", "FO4Port_ConcordMuseum01"),
+        0x00E2F5: ("REFR", ""),
+        0x00E35E: ("REFR", ""),
+        0x00E3B6: ("REFR", ""),
+        0x00EDF0: ("REFR", ""),
+        0x00EFA9: ("REFR", "FO4Port_PrestonDoorREF"),
+        0x00EFAA: ("REFR", "FO4Port_PrestonExitDoor"),
         0x0337F0: ("QUST", "FO4Port_DialogueSceneRef"),
         0x04D8A1: ("KYWD", "ArmorTypePower"),
     },
+    "FO4SFVaultPod.esm": {
+        0x000800: ("ACTI", "FO4SF_PlayerCryoPod"),
+        0x000801: ("REFR", "FO4SF_PlayerCryoPodRef"),
+    },
     "FO4TerrainCore.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2D4B: ("ACTI", "FO4Core_acti_19d22f_fallout4"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
     "FO4TerrainCore_Mars.esm": {
+        0x000800: ("REFR", "FO4Core_CommonwealthAnchor"),
         0x000803: ("WRLD", "FO4Core_Commonwealth"),
         0x005C50: ("REFR", "FO4Core_SanctuaryWorkbenchRef"),
         0x013E79: ("REFR", "FO4Core_DiamondCityGateRef"),
         0x01A793: ("REFR", "FO4Core_TenpinesWorkbenchRef"),
+        0x0A2D4B: ("ACTI", "FO4Core_acti_19d22f_fallout4"),
         0x0A2ECD: ("ACTI", "FO4_WorkshopWorkbench"),
         0x0A775B: ("REFR", "FO4Core_CommonwealthMapMarkerVault111"),
     },
@@ -121,9 +168,94 @@ KNOWN_EXTERNAL_RECORDS: Dict[str, Dict[int, Tuple[str, str]]] = {
     },
     "FO4SFMapMarkers.esm": {
         **{0x000800 + i: ("QUST", f"FO4SF_MapMarkersQuest_{i:02d}") for i in range(16)},
+        0x0008F0: ("REFR", "FO4SF_MapMarkersLandingPad"),
+        0x0008F1: ("REFR", "FO4SF_MapMarkersLandingTrigger"),
+        0x0008F2: ("REFR", "FO4SF_MapMarkersLandingMarker"),
+        0x0008F3: ("REFR", "FO4SF_MapMarkersLandingHeading"),
+        0x0008F4: ("CELL", "FO4SF_MapMarkersHop"),
+        0x0008F5: ("REFR", "FO4SF_MapMarkersHopMarker"),
+        0x0008F6: ("REFR", "FO4SF_MapMarkersHopFloor"),
     },
     "FO4SFPipboyTravel.esm": {
         **{0x000800 + i: ("GLOB", f"FO4SF_PipboyTravelGlob_{i:02d}") for i in range(32) if i != 2},
+    },
+    "FO4SF_RA5Creatures.esm": {
+        0x000804: ("NPC_", "FO4SF_RA5RadroachTest"),
+        0x000809: ("NPC_", "FO4SF_RA5BloatflyTest"),
+        0x00080E: ("NPC_", "FO4SF_RA5MoleratTest"),
+        0x000813: ("NPC_", "FO4SF_RA5DogTest"),
+        0x000818: ("NPC_", "FO4SF_RA5DeathclawTest"),
+    },
+    "FO4SF_R11P1Museum.esm": {
+        0x000800: ("ACTI", "FO4SF_P1_MuseumFrontIn"),
+        0x000801: ("ACTI", "FO4SF_P1_MuseumFrontOut"),
+        0x000802: ("ACTI", "FO4SF_P1_MuseumRoofOut"),
+        0x000803: ("ACTI", "FO4SF_P1_MuseumRoofIn"),
+        0x000804: ("ACTI", "FO4SF_P1_BasementTerminal"),
+        0x000805: ("ACTI", "FO4SF_P1_RaiderNavTrigger"),
+        0x00080F: ("CELL", "FO4SF_P1_HoldingCell"),
+        0x000810: ("REFR", "FO4SF_P1_ExtFrontInRef"),
+        0x000811: ("REFR", "FO4SF_P1_IntFrontOutRef"),
+        0x000812: ("REFR", "FO4SF_P1_IntRoofOutRef"),
+        0x000813: ("REFR", "FO4SF_P1_ExtRoofInRef"),
+        0x000814: ("REFR", "FO4SF_P1_BasementTermRef"),
+        0x000815: ("ACHR", "FO4SF_P1_GroundRaiderRef"),
+        0x000816: ("REFR", "FO4SF_P1_RaiderNavTriggerRef"),
+        0x000820: ("QUST", "FO4SF_R11P1Quest"),
+        0x000821: ("QUST", "FO4SF_P1_LoadDoor"),
+    },
+    "FO4SF_R11P6Arsenal.esm": {
+        0x000800: ("ACTI", "FO4SF_P6_TargetTriggerActi"),
+        0x000802: ("NPC_", "FO4SF_P6_NoDisintTargetNpc"),
+        0x000810: ("REFR", "FO4SF_P6_TargetTriggerRef"),
+        0x000811: ("ACHR", "FO4SF_P6_FleshDummyRef"),
+        0x000812: ("ACHR", "FO4SF_P6_RobotDummyRef"),
+        0x000813: ("ACHR", "FO4SF_P6_NoDisintDummyRef"),
+        0x000814: ("REFR", "FO4SF_P6_StoneTargetRef"),
+        0x000815: ("REFR", "FO4SF_P6_WoodTargetRef"),
+        0x000816: ("REFR", "FO4SF_P6_RackTable1Ref"),
+        0x000817: ("REFR", "FO4SF_P6_RackTable2Ref"),
+        0x000818: ("REFR", "FO4SF_P6_RackTable3Ref"),
+        0x000819: ("REFR", "FO4SF_P6_Weap_10mmRef"),
+        0x00081A: ("REFR", "FO4SF_P6_Weap_BatonRef"),
+        0x00081B: ("REFR", "FO4SF_P6_Weap_PipePistolRef"),
+        0x00081C: ("REFR", "FO4SF_P6_Weap_PipeRifleRef"),
+        0x00081D: ("REFR", "FO4SF_P6_Weap_LaserMusketRef"),
+        0x00081E: ("REFR", "FO4SF_P6_Weap_MinigunRef"),
+        0x00081F: ("REFR", "FO4SF_P6_Weap_FragGrenadeRef"),
+        0x000820: ("REFR", "FO4SF_P6_Weap_FragMineRef"),
+        0x000821: ("REFR", "FO4SF_P6_Weap_PipeRevolverRef"),
+        0x000822: ("REFR", "FO4SF_P6_Weap_HuntingRifleRef"),
+        0x000823: ("REFR", "FO4SF_P6_Weap_CombatShotgunRef"),
+        0x000824: ("REFR", "FO4SF_P6_Weap_DoubleBarrelRef"),
+        0x000825: ("REFR", "FO4SF_P6_Weap_SubmachineGunRef"),
+        0x000826: ("REFR", "FO4SF_P6_Weap_AssaultRifleRef"),
+        0x000827: ("REFR", "FO4SF_P6_Weap_BaseballBatRef"),
+        0x000828: ("REFR", "FO4SF_P6_Weap_LaserPistolRef"),
+        0x000829: ("REFR", "FO4SF_P6_Weap_LaserRifleRef"),
+        0x00082A: ("REFR", "FO4SF_P6_Weap_PlasmaPistolRef"),
+        0x00082B: ("REFR", "FO4SF_P6_Weap_PlasmaRifleRef"),
+        0x00082C: ("REFR", "FO4SF_P6_Weap_GaussRifleRef"),
+        0x00082D: ("REFR", "FO4SF_P6_Weap_MissileLaunchRef"),
+        0x00082E: ("REFR", "FO4SF_P6_Weap_FatManRef"),
+        0x00082F: ("REFR", "FO4SF_P6_Weap_FlamerRef"),
+        0x000830: ("QUST", "FO4SF_R11P6Quest"),
+        0x000831: ("REFR", "FO4SF_P6_Ammo_10mmRef"),
+        0x000832: ("REFR", "FO4SF_P6_Ammo_38CalRef"),
+        0x000833: ("REFR", "FO4SF_P6_Ammo_FusionCellRef"),
+        0x000834: ("REFR", "FO4SF_P6_Ammo_5mmRef"),
+        0x000835: ("REFR", "FO4SF_P6_Ammo_308CalRef"),
+        0x000836: ("REFR", "FO4SF_P6_Ammo_45CalRef"),
+        0x000837: ("REFR", "FO4SF_P6_Ammo_ShotgunShellRef"),
+        0x000838: ("REFR", "FO4SF_P6_Ammo_556Ref"),
+        0x000839: ("REFR", "FO4SF_P6_Ammo_MissileRef"),
+        0x00083A: ("REFR", "FO4SF_P6_Ammo_MiniNukeRef"),
+        0x00083B: ("REFR", "FO4SF_P6_Ammo_FlamerFuelRef"),
+        0x00083C: ("REFR", "FO4SF_P6_Ammo_PlasmaCartRef"),
+        0x00083D: ("REFR", "FO4SF_P6_Ammo_2mmEcRef"),
+        0x00083E: ("REFR", "FO4SF_P6_StimpakRef"),
+        0x00083F: ("REFR", "FO4SF_P6_CapsRef"),
+        0x000840: ("REFR", "FO4SF_P6_BobbyPinRef"),
     },
 }
 
@@ -146,11 +278,13 @@ CAST_EXPECTED_TYPES: Dict[str, Set[str]] = {
     "furniture": {"FURN"},
     "spell": {"SPEL"},
     "hazard": {"HAZD"},
+    "effectshader": {"EFSH"},
     "actorbase": {"NPC_"},
     "actor": {"ACHR", "REFR"},
     "objectreference": {"REFR", "ACHR"},
     "gameplayoption": {"GPOF"},
     "scene": {"SCEN"},
+    "weather": {"WTHR"},
     "worldspace": {"WRLD"},
     "form": {
         "MISC", "ALCH", "AMMO", "ARMO", "ARMA", "OTFT", "WEAP", "ACTI", "FURN", "STAT",
@@ -300,17 +434,27 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
     }
     m_sanc_scr = re.search(r'SanctuaryScriptName\s*=\s*"([^"]+)"', body)
     sanctuary_script = m_sanc_scr.group(1) if m_sanc_scr else default_script
+    m_cods_scr = re.search(r'CodsworthScriptName\s*=\s*"([^"]+)"', body)
+    codsworth_script = m_cods_scr.group(1) if m_cods_scr else default_script
 
     local_formkey_vars: Dict[str, Tuple[str, int]] = {}
     if own_plugin == "FO4SFMission.esm":
         for vname, cname in (
             ("prestonRef", "PrestonRefId"),
             ("prestonScene", "PrestonTalkSceneId"),
+            ("prestonPostScene", "PrestonPostTalkSceneId"),
             ("codsRef", "CodsworthRefId"),
+            ("codsworthPostScene", "CodsworthPostSceneId"),
+            ("concordSidearm", "ConcordRaiderSidearmWeapId"),
+            ("concordPrimary", "ConcordRaiderPrimaryWeapId"),
         ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = (own_plugin, uint_consts[cname])
-        for vname, cname in (("credits", "CreditsId"), ("xMarker", "XMarkerId")):
+        for vname, cname in (
+            ("credits", "CreditsId"),
+            ("xMarker", "XMarkerId"),
+            ("raiderSidearmAmmo", "SfRaiderSidearmAmmoId"),
+        ):
             if cname in uint_consts:
                 local_formkey_vars[vname] = ("Starfield.esm", uint_consts[cname])
 
@@ -335,6 +479,26 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
                 pid_int = int(rl_pid, 16)
                 for m_pid in re.finditer(r"\buint\s+(\w+)\s*=\s*LoadVaultPistolId\(", body):
                     uint_consts[m_pid.group(1)] = pid_int
+        except (OSError, ValueError, KeyError):
+            pass
+
+    # Resolve `vpBind.VaultPistolBaseKey` / `vpBind.VaultAmmoBaseKey` from `src/fo4sf/core/game_start_config.json`
+    gs_default = os.path.join(os.path.dirname(CORE_VALUES_JSON), "game_start_config.json")
+    if os.path.isfile(gs_default):
+        try:
+            with open(gs_default, encoding="utf-8") as gs_h:
+                gs_data = json.load(gs_h)
+            vp_cfg = ((gs_data.get("games") or {}).get("fo4") or {}).get("vault_pistol") or {}
+            wp = str(vp_cfg.get("weapon_plugin") or "").strip()
+            wid = str(vp_cfg.get("weapon_id") or "").strip()
+            ap = str(vp_cfg.get("ammo_plugin") or "").strip()
+            aid = str(vp_cfg.get("ammo_id") or "").strip()
+            if wp and wid and re.search(r"\bvar\s+vaultPistolKey\s*=\s*vpBind\.VaultPistolBaseKey\s*;", body):
+                local_formkey_vars["vaultPistolKey"] = (wp, int(wid, 16))
+            if ap and aid:
+                m_vak = re.search(r"\bvpBind\.VaultAmmoBaseKey\s+is\s+\{\s*var\s+(\w+)\s*\}", body)
+                if m_vak:
+                    local_formkey_vars[m_vak.group(1)] = (ap, int(aid, 16))
         except (OSError, ValueError, KeyError):
             pass
 
@@ -392,13 +556,18 @@ def parse_cs_vmad_bindings(cs_rel: str, cs_text: str) -> List[VmadPropBinding]:
             return (modkey_aliases[m_fk.group(1)], cid) if cid is not None else None
         return None
 
-    for m in re.finditer(r'(SanctuaryObjProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
+    for m in re.finditer(r'(SanctuaryObjProp|CodsworthProp|Obj|ObjProp)\(\s*"([A-Za-z_]\w*)"\s*,\s*([^)]+\)?)\s*\)', body):
         helper_name, pname, fk_expr = m.group(1), m.group(2), m.group(3)
         if not pname:
             continue
         res = resolve_fk(fk_expr)
         if res is not None:
-            scr = sanctuary_script if helper_name == "SanctuaryObjProp" else default_script
+            if helper_name == "SanctuaryObjProp":
+                scr = sanctuary_script
+            elif helper_name == "CodsworthProp":
+                scr = codsworth_script
+            else:
+                scr = default_script
             bindings.append(VmadPropBinding(cs_rel, scr, pname, res[0], res[1]))
 
     for m in re.finditer(r'\["([A-Za-z_]\w*)"\]\s*=\s*([^,\r\n}]+)', body):
@@ -515,12 +684,16 @@ def _infer_type_from_const_name(const_name: str) -> str:
         return "INFO"
     if "dlbr" in low or "branch" in low:
         return "DLBR"
+    if "scen" in low:
+        return "SCEN"
     if "race" in low:
         return "RACE"
     if "token" in low or "kitid" in low or "coreid" in low or "fanid" in low or "tapeid" in low or "plateid" in low or "canid" in low:
         return "MISC"
     if "pack" in low or "pkg" in low:
         return "PACK"
+    if low.endswith("contid") or "_cont_" in low:
+        return "CONT"
     if "furn" in low or ("frame" in low and "ref" not in low) or ("chair" in low and "ref" not in low):
         return "FURN"
     if "armor" in low or "helm" in low or "bodyid" in low or "piece" in low or "torsoid" in low or "armid" in low or "legid" in low:
@@ -677,6 +850,7 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x817, "QUST", "FO4SF_Sanctuary01"),
             (0x818, "RACE", "FO4SF_CodsworthRace"),
             (0x819, "VTYP", "FO4SF_CodsworthVoice"),
+            (0x81A, "BPTD", "FO4SF_CodsworthBodyPartData"),   # robot-anim, only with --codsworth-handy
             (0x81F, "FACT", "FO4SF_MinutemenFaction"),
             (0x820, "DIAL", "FO4SF_CodsworthHellos"),
             (0x900, "SCEN", "FO4SF_Min00_PrestonScene"),
@@ -687,15 +861,25 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0x942, "INFO", "FO4SF_Codsworth01_GreetInfo"),
             (0x970, "ACTI", "FO4SF_CodsworthTalkActi"),
             (0x979, "GLOB", "FO4SF_MissionTalkUseMessageBox"),
+            (0x97A, "WEAP", "FO4SF_ConcordRaiderSidearm"),
+            (0x97B, "WEAP", "FO4SF_ConcordRaiderPrimary"),
             # C5: Preston & Concord Raider Fallout 4 outfits / armatures / armors (0x980..0x98A)
             (0x980, "OTFT", "FO4_Outfit_PrestonMinuteman"),
             (0x981, "ARMA", "FO4_AA_PrestonDuster"),
             (0x983, "ARMO", "FO4_Armor_PrestonMinuteman"),
             (0x984, "ARMA", "FO4_AA_PrestonHat"),
             (0x985, "ARMO", "FO4_Armor_PrestonHat"),
+            (0x986, "NPC_", "FO4_ConcordRaider"),
             (0x988, "OTFT", "FO4_Outfit_ConcordRaider"),
             (0x989, "ARMA", "FO4_AA_ConcordRaider"),
             (0x98A, "ARMO", "FO4_Armor_ConcordRaider"),
+            # R11 Part 3 (2g-fix2): Repeat post-completion Starfield Scenes hosted on FO4SF_CodsworthKeeper (0x814)
+            (0x990, "SCEN", "FO4SF_PrestonPostScene"),
+            (0x991, "DIAL", "FO4SF_PrestonPostGreetTopic"),
+            (0x992, "INFO", "FO4SF_PrestonPostGreetInfo"),
+            (0x9C0, "SCEN", "FO4SF_CodsworthPostScene"),
+            (0x9C1, "DIAL", "FO4SF_CodsworthPostGreetTopic"),
+            (0x9C2, "INFO", "FO4SF_CodsworthPostGreetInfo"),
             # A4: Sanctuary01 (0x817 in place) + MinRecruit00 (0xA20) + MQ103 (0xA50)
             (0xA00, "NPC_", "FO4_Sturges"),
             (0xA01, "ACHR", "FO4SF_Sanctuary_SturgesREF"),
@@ -852,15 +1036,179 @@ def parse_cs_writer_records(cs_text: str) -> Tuple[Optional[str], Dict[int, Tupl
             (0xB54, "MESG", "FO4SF_MQ206_WorkbenchBuildMsg"),
             (0xB55, "MESG", "FO4SF_MQ206_RelayFireMsg"),
             (0xB56, "MESG", "FO4SF_MQ206_OpenModeFallbackMsg"),
+            # Task 1i: Mission holding cell (0xB60) owns all persistent ACHRs & relocated R11/R12 markers (0 WRLD overrides)
+            (0xB60, "CELL", "FO4SF_MissionHoldingCell"),
+            # R11 Step 3q (--r11-full-mission 1): S4 balcony, S9 exit & Red Rocket road patrol waypoints, DC MapMarker, gate GLOB
+            (0xB80, "REFR", "FO4SF_S4_PrestonBalconyMarker"),
+            (0xB81, "REFR", "FO4SF_S9_MuseumExitMarker"),
+            (0xB82, "REFR", "FO4SF_S9_PatrolWP_0"),
+            (0xB83, "REFR", "FO4SF_S9_PatrolWP_1"),
+            (0xB84, "REFR", "FO4SF_S9_PatrolWP_2"),
+            (0xB85, "REFR", "FO4SF_S9_PatrolWP_3"),
+            (0xB86, "REFR", "FO4SF_S9_PatrolWP_4"),
+            (0xB87, "REFR", "FO4SF_S9_PatrolWP_5"),
+            (0xB88, "REFR", "FO4SF_S9_PatrolWP_6"),
+            (0xB89, "REFR", "FO4SF_S9_PatrolWP_7"),
+            (0xB8A, "REFR", "FO4SF_DiamondCityMapMarker"),
+            (0xB8B, "GLOB", "FO4SF_R11FullMission"),
+            # R12 Task 1d-1h (NextStoryMissionsS2S6.cs, --r11-full-mission 1): S2-S6 missions, museum interior & 3F room
+            (0xB8C, "GLOB", "FO4SF_S2CreatureSlotReady"),
+            (0xB8D, "GLOB", "FO4SF_Task1bVaultRecoveryReady"),
+            (0xB8E, "GLOB", "FO4SF_Fo4HumanAnimsEnabled"),
+            (0xB90, "QUST", "FO4SF_Vault111Roaches"),
+            (0xB91, "REFR", "FO4SF_S2_RadroachMarker_0"),
+            (0xB92, "REFR", "FO4SF_S2_RadroachMarker_1"),
+            (0xB93, "REFR", "FO4SF_S2_RadroachMarker_2"),
+            (0xB94, "REFR", "FO4SF_S2_RadroachMarker_3"),
+            (0xB95, "REFR", "FO4SF_S2_RadroachMarker_4"),
+            (0xB96, "PACK", "FO4SF_S3_PackHouse01"),
+            (0xB97, "PACK", "FO4SF_S3_PackHouse02"),
+            (0xB98, "REFR", "FO4SF_S3_House01Marker"),
+            (0xB99, "REFR", "FO4SF_S3_House02Marker"),
+            (0xB9A, "SCEN", "FO4SF_S3_Stage50Scene"),
+            (0xB9B, "DIAL", "FO4SF_S3_Stage50GreetTopic"),
+            (0xB9C, "INFO", "FO4SF_S3_Stage50GreetInfo"),
+            (0xB9D, "DIAL", "FO4SF_S3_Stage50_ChoiceTopic_0"),
+            (0xB9E, "INFO", "FO4SF_S3_Stage50_ChoiceInfo_0"),
+            (0xB9F, "DIAL", "FO4SF_S3_Stage50_ReplyTopic_0"),
+            (0xBA0, "INFO", "FO4SF_S3_Stage50_ReplyInfo_0"),
+            (0xBA1, "REFR", "FO4SF_S3_BloatflyMarker_0"),
+            (0xBA2, "REFR", "FO4SF_S3_BloatflyMarker_1"),
+            (0xBA3, "REFR", "FO4SF_S3_BloatflyMarker_2"),
+            (0xBA4, "REFR", "FO4SF_S3_BloatflyMarker_3"),
+            (0xBA5, "REFR", "FO4SF_S3_BloatflyMarker_4"),
+            (0xBA6, "REFR", "FO4SF_S3_BloatflyMarker_5"),
+            (0xBA7, "ACTI", "FO4SF_S4_DisplayLaserMusketActi"),
+            (0xBA8, "REFR", "FO4SF_S4_DisplayLaserMusketRef"),
+            (0xBA9, "ACTI", "FO4SF_S4_FusionCellActi"),
+            (0xBAA, "REFR", "FO4SF_S4_FusionCellRef_0"),
+            (0xBAB, "REFR", "FO4SF_S4_FusionCellRef_1"),
+            (0xBAC, "REFR", "FO4SF_S4_FusionCellRef_2"),
+            (0xBAD, "ACTI", "FO4SF_Item_StimpakActi"),
+            (0xBAE, "REFR", "FO4SF_S5_MuseumStimpakRef_0"),
+            (0xBAF, "REFR", "FO4SF_S5_MuseumStimpakRef_1"),
+            (0xBB0, "ACTI", "FO4SF_Item_CapsActi"),
+            (0xBB1, "REFR", "FO4SF_S5_MuseumCapsRef"),
+            (0xBB2, "ACTI", "FO4SF_Item_BobbyPinActi"),
+            (0xBB3, "REFR", "FO4SF_S5_MuseumBobbyPinRef"),
+            (0xBB4, "ACTI", "FO4SF_S5_MuseumPipeWeaponActi"),
+            (0xBB5, "REFR", "FO4SF_S5_MuseumPipeWeaponRef"),
+            (0xBB6, "ACTI", "FO4SF_S5_LoadDoorInActi"),
+            (0xBB7, "ACTI", "FO4SF_S5_LoadDoorOutActi"),
+            (0xBB8, "REFR", "FO4SF_S5_ExtFrontInRef"),
+            (0xBB9, "REFR", "FO4SF_S5_IntFrontOutRef"),
+            (0xBBA, "REFR", "FO4SF_S5_IntRoofOutRef"),
+            (0xBBB, "REFR", "FO4SF_S5_ExtRoofInRef"),
+            (0xBBC, "ACHR", "FO4SF_S5_MuseumRaider_00018D6B"),
+            (0xBBD, "ACHR", "FO4SF_S5_MuseumRaider_0001D808"),
+            (0xBBE, "ACHR", "FO4SF_S5_MuseumRaider_0001CB6E"),
+            (0xBBF, "ACHR", "FO4SF_S5_MuseumRaider_0001E2E0"),
+            (0xBC0, "ACHR", "FO4SF_S5_MuseumRaider_0001D809"),
+            (0xBC1, "ACHR", "FO4SF_S5_MuseumRaider_0001E2E2"),
+            (0xBC2, "ACHR", "FO4SF_S5_MuseumRaider_0001E2E1"),
+            (0xBC3, "NPC_", "FO4_MamaMurphy"),
+            (0xBC4, "ACHR", "FO4SF_S6_MamaMurphyRef"),
+            (0xBC5, "NPC_", "FO4_MarcyLong"),
+            (0xBC6, "ACHR", "FO4SF_S6_MarcyLongRef"),
+            (0xBC7, "NPC_", "FO4_JunLong"),
+            (0xBC8, "ACHR", "FO4SF_S6_JunLongRef"),
+            (0xBC9, "SCEN", "FO4SF_S6_PrestonRoomScene"),
+            (0xBCA, "DIAL", "FO4SF_S6_PrestonRoomGreetTopic"),
+            (0xBCB, "INFO", "FO4SF_S6_PrestonRoomGreetInfo"),
+            (0xBCC, "DIAL", "FO4SF_S6_PrestonRoom_ChoiceTopic_0"),
+            (0xBCD, "INFO", "FO4SF_S6_PrestonRoom_ChoiceInfo_0"),
+            (0xBCE, "DIAL", "FO4SF_S6_PrestonRoom_ReplyTopic_0"),
+            (0xBCF, "INFO", "FO4SF_S6_PrestonRoom_ReplyInfo_0"),
+            (0xBD0, "SCEN", "FO4SF_S6_SturgesRoomScene"),
+            (0xBD1, "DIAL", "FO4SF_S6_SturgesRoomGreetTopic"),
+            (0xBD2, "INFO", "FO4SF_S6_SturgesRoomGreetInfo"),
+            (0xBD3, "DIAL", "FO4SF_S6_SturgesRoom_ChoiceTopic_0"),
+            (0xBD4, "INFO", "FO4SF_S6_SturgesRoom_ChoiceInfo_0"),
+            (0xBD5, "DIAL", "FO4SF_S6_SturgesRoom_ReplyTopic_0"),
+            (0xBD6, "INFO", "FO4SF_S6_SturgesRoom_ReplyInfo_0"),
+            (0xBD7, "ACTI", "FO4SF_S6_SturgesTalkActi"),
+            (0xBD8, "ACTI", "FO4SF_S6_BasementTermActi"),
+            (0xBD9, "REFR", "FO4SF_S6_BasementTermRef"),
+            (0xBDA, "ACTI", "FO4SF_S6_FusionCoreActi"),
+            (0xBDB, "REFR", "FO4SF_S6_FusionCoreRef"),
+            (0xBDE, "QUST", "FO4SF_LoadDoor"),
+            (0xBDF, "ACTI", "FO4SF_S5_RoofLoadDoorInActi"),
+            (0xBE0, "ACTI", "FO4SF_S5_RoofLoadDoorOutActi"),
+            (0xBE1, "PACK", "FO4SF_S5_MuseumRaiderPursuePack"),
+            (0xBE2, "NPC_", "FO4SF_S2_RadroachNpc"),
+            (0xBE3, "NPC_", "FO4SF_S3_BloatflyNpc"),
+            (0xBE4, "ARMO", "FO4SF_S6_SettlerClothes_StandIn"),
+            (0xBE5, "OTFT", "FO4SF_S6_SettlerOutfit_StandIn"),
         ):
             records[cid] = (rt, ed)
     if plugin == "FO4SFRouteLoot.esm":
         records.setdefault(0x800, ("CONT", "FO4SF_Vault111ArmoryCase"))
     if plugin == "FO4SFNewGame.esm":
+        records.setdefault(0x80D, ("ARMO", "FO4SF_PipboyWrist"))
         records.setdefault(0x820, ("REFR", "FO4SF_Vault111PistolRef"))
         records.setdefault(0x821, ("REFR", "FO4SF_Vault111AmmoRef"))
+        records.setdefault(0x822, ("WEAP", "FO4SF_Vault111_10mm"))
+        records.setdefault(0x823, ("ARMA", "FO4SF_PipboyWristAA"))
+        # 0x824 retired (former FO4SF_PipboyWristScreenAA; housing + PipboyScreen merged onto 0x823 bit 55)
 
     return plugin, records
+
+
+CORE_VALUES_ARSENAL_RECORDS: Dict[int, Tuple[str, str]] = {
+    0x000898: ("AMMO", "FO4_Ammo10mm"),
+    0x000899: ("WEAP", "FO4_10mmPistol"),
+    0x00089A: ("WEAP", "FO4_Baton"),
+    0x00089B: ("AMMO", "FO4_AmmoFusionCell"),
+    0x00089C: ("AMMO", "FO4_CompanionAmmoFusionCell"),
+    0x00089D: ("WEAP", "FO4_LaserMusket"),
+    0x00089E: ("WEAP", "FO4_CompPrestonLaserMusket"),
+    0x00089F: ("AMMO", "FO4_Ammo5mm"),
+    0x0008A0: ("WEAP", "FO4_Minigun"),
+    0x0008A1: ("AMMO", "FO4_Ammo38Caliber"),
+    0x0008A2: ("WEAP", "FO4_PipePistol"),
+    0x0008A3: ("WEAP", "FO4_PipeRifle"),
+    0x0008A4: ("MISC", "FO4_Caps"),
+    0x0008A5: ("MISC", "FO4_BobbyPin"),
+    0x0008B0: ("AMMO", "FO4_Ammo308Caliber"),
+    0x0008B1: ("AMMO", "FO4_Ammo45Caliber"),
+    0x0008B2: ("AMMO", "FO4_AmmoShotgunShell"),
+    0x0008B3: ("AMMO", "FO4_Ammo556"),
+    0x0008B4: ("AMMO", "FO4_AmmoMissile"),
+    0x0008B5: ("AMMO", "FO4_AmmoMiniNuke"),
+    0x0008B6: ("AMMO", "FO4_AmmoFlamerFuel"),
+    0x0008B7: ("AMMO", "FO4_AmmoPlasmaCartridge"),
+    0x0008B8: ("AMMO", "FO4_Ammo2mmEC"),
+    0x0008B9: ("EXPL", "FO4_FragGrenadeExplosion"),
+    0x0008BA: ("EXPL", "FO4_FragMineExplosion"),
+    0x0008BB: ("EXPL", "FO4_MissileExplosion"),
+    0x0008BC: ("EXPL", "FO4_FatManExplosion"),
+    0x0008BD: ("PROJ", "FO4_FragGrenadeProjectile"),
+    0x0008BE: ("PROJ", "FO4_FragMineProjectile"),
+    0x0008BF: ("PROJ", "FO4_MissileProjectile"),
+    0x0008C0: ("PROJ", "FO4_FatManProjectile"),
+    0x0008C1: ("ACTI", "FO4_GooPile01"),
+    0x0008C2: ("MGEF", "FO4_CritPlasmaEffect"),
+    0x0008C3: ("SPEL", "FO4_CritPlasma"),
+    0x0008C4: ("SPEL", "FO4_CritLaser"),
+    0x0008C5: ("WEAP", "FO4_UnarmedHuman"),
+    0x0008C6: ("WEAP", "FO4_FragGrenade"),
+    0x0008C7: ("WEAP", "FO4_FragMine"),
+    0x0008C8: ("WEAP", "FO4_PipeRevolver"),
+    0x0008C9: ("WEAP", "FO4_HuntingRifle"),
+    0x0008CA: ("WEAP", "FO4_CombatShotgun"),
+    0x0008CB: ("WEAP", "FO4_DoubleBarrelShotgun"),
+    0x0008CC: ("WEAP", "FO4_SubmachineGun"),
+    0x0008CD: ("WEAP", "FO4_AssaultRifle"),
+    0x0008CE: ("WEAP", "FO4_LaserPistol"),
+    0x0008CF: ("WEAP", "FO4_LaserRifle"),
+    0x0008D0: ("WEAP", "FO4_BaseballBat"),
+    0x0008D1: ("WEAP", "FO4_MissileLauncher"),
+    0x0008D2: ("WEAP", "FO4_FatMan"),
+    0x0008D3: ("WEAP", "FO4_Flamer"),
+    0x0008D4: ("WEAP", "FO4_PlasmaPistol"),
+    0x0008D5: ("WEAP", "FO4_PlasmaRifle"),
+    0x0008D6: ("WEAP", "FO4_GaussRifle"),
+}
 
 
 def build_writer_catalog(
@@ -876,18 +1224,23 @@ def build_writer_catalog(
     if include_core_values and os.path.isfile(core_values_json):
         cv_plugin, _, cv_records = load_core_values(core_values_json)
         catalog[cv_plugin] = {r.form_id: (r.record_type, r.edid) for r in cv_records}
+        catalog[cv_plugin].update(CORE_VALUES_ARSENAL_RECORDS)
 
     dotnet_dir = os.path.join(repo_root, "dotnet")
     if os.path.isdir(dotnet_dir):
         for entry in sorted(os.listdir(dotnet_dir)):
             if entry == "CoreValues" or entry.endswith("Probe"):
                 continue
-            prog = os.path.join(dotnet_dir, entry, "Program.cs")
+            entry_dir = os.path.join(dotnet_dir, entry)
+            prog = os.path.join(entry_dir, "Program.cs")
             if not os.path.isfile(prog):
                 continue
-            with open(prog, encoding="utf-8") as handle:
-                cs_text = handle.read()
-            plugin, recs = parse_cs_writer_records(cs_text)
+            cs_chunks: List[str] = []
+            for cs_name in sorted(os.listdir(entry_dir)):
+                if cs_name.endswith(".cs") and os.path.isfile(os.path.join(entry_dir, cs_name)):
+                    with open(os.path.join(entry_dir, cs_name), encoding="utf-8") as handle:
+                        cs_chunks.append(handle.read())
+            plugin, recs = parse_cs_writer_records("\n".join(cs_chunks))
             if plugin and recs:
                 catalog.setdefault(plugin, {}).update(recs)
 
@@ -994,6 +1347,24 @@ def validate_vault_pistol_sync(
             f"route_loot_ids.json vault111.pickups lacks Starfield.esm:0x{want_pid:06X} matching vault111.pistol_id"
         )
 
+    valid_pistol_targets: Set[Tuple[str, int]] = {
+        ("Starfield.esm", want_pid),
+        ("FO4SFCoreValues.esm", 0x000899),
+        ("FO4SFNewGame.esm", 0x000822),
+    }
+    gs_default = os.path.join(os.path.dirname(CORE_VALUES_JSON), "game_start_config.json")
+    if os.path.isfile(gs_default):
+        try:
+            with open(gs_default, encoding="utf-8") as gs_h:
+                gs_data = json.load(gs_h)
+            vp_cfg = ((gs_data.get("games") or {}).get("fo4") or {}).get("vault_pistol") or {}
+            wp = str(vp_cfg.get("weapon_plugin") or "").strip()
+            wid = str(vp_cfg.get("weapon_id") or "").strip()
+            if wp and wid:
+                valid_pistol_targets.add((wp, int(wid, 16)))
+        except (OSError, ValueError, KeyError):
+            pass
+
     ng_pistol_bindings = [
         b for b in bindings if b.script_name == "FO4SF_NewGameQuest" and b.prop_name == "VaultPistolBase"
     ]
@@ -1003,7 +1374,7 @@ def validate_vault_pistol_sync(
         )
     else:
         b = ng_pistol_bindings[0]
-        if (b.target_plugin, b.target_id) != ("Starfield.esm", want_pid):
+        if (b.target_plugin, b.target_id) not in valid_pistol_targets:
             errors.append(
                 f"FO4SF_NewGameQuest.VaultPistolBase bound to {b.target_plugin}:0x{b.target_id:06X} "
                 f"!= route_loot_ids.json vault111.pistol_id Starfield.esm:0x{want_pid:06X}"
@@ -1021,10 +1392,10 @@ def validate_vault_pistol_sync(
                     errors.append("FO4SFNewGame.esm missing compiled VMAD FO4SF_NewGameQuest.VaultPistolBase")
                 else:
                     _alias, tgt_plg, tgt_id = vps[0].object_refs[0]
-                    if (tgt_plg, tgt_id) != ("Starfield.esm", want_pid):
+                    if (tgt_plg, tgt_id) not in valid_pistol_targets:
                         errors.append(
                             f"FO4SFNewGame.esm compiled VaultPistolBase={tgt_plg}:0x{tgt_id:06X} "
-                            f"!= route_loot_ids.json Starfield.esm:0x{want_pid:06X}"
+                            f"!= route_loot_ids.json Starfield.esm:0x{want_pid:06X} or FO4SFCoreValues.esm:0x000899"
                         )
 
     return errors
@@ -1175,9 +1546,23 @@ def validate_psc_form_refs(
     return errors
 
 
+VANILLA_STARFIELD_VMAD_SCRIPTS: Dict[str, Dict[str, str]] = {
+    "attachashpile": {
+        "fdelay": "float",
+        "fdelayend": "float",
+        "shaderduration": "float",
+        "ashpileobject": "activator",
+        "magiceffectshader": "effectshader",
+        "bsetalphazero": "bool",
+        "bsetalphatozeroearly": "bool",
+        "oneffectstartoveride": "bool",
+    },
+}
+
+
 def collect_psc_props_by_script(repo_root: str) -> Dict[str, Dict[str, str]]:
     """Scan `scripts/**/*.psc` and return `{script_name_lower: {prop_name_lower: psc_type}}`."""
-    out: Dict[str, Dict[str, str]] = {}
+    out: Dict[str, Dict[str, str]] = {k: dict(v) for k, v in VANILLA_STARFIELD_VMAD_SCRIPTS.items()}
     scripts_root = os.path.join(repo_root, "scripts")
     if not os.path.isdir(scripts_root):
         return out
@@ -1391,6 +1776,8 @@ def validate_staged_esms(
         for vp in rep.vmad_properties:
             sprops = psc_props_by_script.get(vp.script_name.lower())
             if sprops is None:
+                sprops = VANILLA_STARFIELD_VMAD_SCRIPTS.get(vp.script_name.lower())
+            if sprops is None:
                 errors.append(f"{rep.plugin_name} ({vp.record_edid}): VMAD script {vp.script_name} missing in .psc sources")
                 continue
             psc_ptype = sprops.get(vp.prop_name.lower())
@@ -1463,6 +1850,7 @@ def validate_staged_esms(
 
 CPP_RTTI_TO_RECORD_TYPE: Dict[str, str] = {
     "ActorValueInfo@@": "AVIF",
+    "BGSKeyword@@": "KYWD",
     "TESGlobal@@": "GLOB",
     "AlchemyItem@@": "ALCH",
     "TESQuest@@": "QUST",
@@ -1550,6 +1938,22 @@ NATIVE_CORE_VALUE_SPECS: Tuple[NativeCoreValueSpec, ...] = (
         0x000866,
         "GLOB",
         "FO4SF_StartCardOpen",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_screen_source.h",
+        "kPipboyKeywordLocalId",
+        "FO4SFCoreValues.esm",
+        0x000867,
+        "KYWD",
+        "FO4SF_Kw_Pipboy",
+    ),
+    NativeCoreValueSpec(
+        "sfse/FO4SFPipboyMenu/src/pipboy_screen_source.h",
+        "kPipboyScreenSourceGlobLocalId",
+        "FO4SFCoreValues.esm",
+        0x000868,
+        "GLOB",
+        "FO4SF_PipboyScreenSource",
     ),
     NativeCoreValueSpec(
         "sfse/FO4SFPipboyMenu/src/main.cpp",
@@ -1658,18 +2062,23 @@ def _strip_cpp_comments(cpp_text: str) -> str:
     return re.sub(r"//[^\n]*", "", no_block)
 
 
-def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
+def parse_cpp_plugin_form_refs(
+    cpp_rel: str,
+    cpp_text: str,
+    seed_uints: Optional[Dict[str, int]] = None,
+    seed_strs: Optional[Dict[str, str]] = None,
+) -> Tuple[Dict[str, int], List[CppPluginFormRef]]:
     """Parse C++ `uint32_t` FormID constants and `KitFileForm` / plugin-local FormID lookups in `cpp_text`."""
     clean = _strip_cpp_comments(cpp_text)
-    uint_consts: Dict[str, int] = {}
-    str_vars: Dict[str, str] = {}
+    uint_consts: Dict[str, int] = dict(seed_uints or {})
+    str_vars: Dict[str, str] = dict(seed_strs or {})
 
-    for m in re.finditer(r"\bconstexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
+    for m in re.finditer(r"\b(?:inline\s+)?constexpr\s+(?:std::)?uint32_t\s+(\w+)\s*=\s*([^;]+);", clean):
         val = _parse_int_literal(m.group(2).strip(), uint_consts)
         if val is not None:
             uint_consts[m.group(1)] = val
 
-    for m in re.finditer(r'\b(?:constexpr\s+auto|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
+    for m in re.finditer(r'\b(?:(?:inline\s+)?constexpr\s+(?:auto|std::string_view)|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean):
         str_vars[m.group(1)] = m.group(2)
 
     # Also resolve local aliases such as `const std::uint32_t spLocalId = kCoreSpecialFirstLocalId + ...;`
@@ -1683,7 +2092,7 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
     refs: List[CppPluginFormRef] = []
     # Match multi-line KitFileForm(pluginExpr, idExpr, "RTTI@@", ...) calls
     for km in re.finditer(
-        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
+        r'KitFileForm\(\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.:]*)\s*,\s*([^,]+?)\s*,\s*"([^"]+)"',
         clean,
         flags=re.S,
     ):
@@ -1691,12 +2100,16 @@ def parse_cpp_plugin_form_refs(cpp_rel: str, cpp_text: str) -> Tuple[Dict[str, i
         if plg_raw.startswith('"') and plg_raw.endswith('"'):
             plugin = plg_raw[1:-1]
         else:
-            plugin = str_vars.get(plg_raw, "")
+            plg_leaf = plg_raw.split("::")[-1]
+            plugin = str_vars.get(plg_raw) or str_vars.get(plg_leaf, "")
         if not plugin:
             continue
 
         id_clean = re.sub(r"static_cast<[^>]+>\(([^)]+)\)", r"\1", id_raw)
+        id_leaf = id_clean.split("::")[-1].strip()
         fid = _parse_int_literal(id_clean, local_aliases)
+        if fid is None:
+            fid = _parse_int_literal(id_leaf, local_aliases)
         line_no = clean.count("\n", 0, km.start()) + 1
         if fid is None or fid <= 0:
             continue
@@ -1760,7 +2173,7 @@ def validate_native_core_value_refs(
         if not os.path.isdir(abs_dir):
             continue
         for fn in sorted(os.listdir(abs_dir)):
-            if fn.endswith(".cpp"):
+            if fn.endswith((".cpp", ".h")):
                 rel = f"{rel_dir}/{fn}"
                 if rel in overrides:
                     cpp_texts[rel] = overrides[rel]
@@ -1770,11 +2183,32 @@ def validate_native_core_value_refs(
     for rel, txt in overrides.items():
         cpp_texts.setdefault(rel, txt)
 
-    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {
-        rel: parse_cpp_plugin_form_refs(rel, txt) for rel, txt in sorted(cpp_texts.items())
-    }
+    # First pass over headers so .cpp files inherit shared header constexpr IDs and plugin names
+    header_uints_by_dir: Dict[str, Dict[str, int]] = {}
+    header_strs_by_dir: Dict[str, Dict[str, str]] = {}
+    parsed_by_file: Dict[str, Tuple[Dict[str, int], List[CppPluginFormRef]]] = {}
+    for rel, txt in sorted(cpp_texts.items()):
+        if rel.endswith(".h"):
+            dir_rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            u, r = parse_cpp_plugin_form_refs(rel, txt)
+            parsed_by_file[rel] = (u, r)
+            header_uints_by_dir.setdefault(dir_rel, {}).update(u)
+            clean_h = _strip_cpp_comments(txt)
+            for hm in re.finditer(r'\b(?:(?:inline\s+)?constexpr\s+(?:auto|std::string_view)|std::string(?:_view)?)\s+(\w+)\s*=\s*"([^"]+\.esm)"(?:sv)?;', clean_h):
+                header_strs_by_dir.setdefault(dir_rel, {})[hm.group(1)] = hm.group(2)
+
+    for rel, txt in sorted(cpp_texts.items()):
+        if not rel.endswith(".h"):
+            dir_rel = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            parsed_by_file[rel] = parse_cpp_plugin_form_refs(
+                rel,
+                txt,
+                seed_uints=header_uints_by_dir.get(dir_rel),
+                seed_strs=header_strs_by_dir.get(dir_rel),
+            )
 
     registered_core_ids: Set[Tuple[str, int]] = set()
+    registered_core_dirs: Set[Tuple[str, int]] = set()
 
     # 1. Validate every entry in the R13 native core-values table against catalog and C++ constants
     for spec in specs:
@@ -1783,10 +2217,12 @@ def validate_native_core_value_refs(
             errors.append(f"{spec.cpp_rel}:{spec.const_name} references unknown plugin {spec.plugin}")
             continue
 
+        spec_dir = spec.cpp_rel.rsplit("/", 1)[0] if "/" in spec.cpp_rel else ""
         for off in range(spec.count):
             fid = spec.local_id + off
             if spec.plugin == "FO4SFCoreValues.esm":
                 registered_core_ids.add((spec.cpp_rel, fid))
+                registered_core_dirs.add((spec_dir, fid))
             if fid not in plg_table:
                 errors.append(
                     f"{spec.cpp_rel}:{spec.const_name} -> {spec.plugin}:0x{fid:06X} ({spec.edid}) missing in writer table"
@@ -1837,7 +2273,8 @@ def validate_native_core_value_refs(
                     f"is {actual_type}, incompatible with RTTI {ref.rtti_name} ({expected_type})"
                 )
 
-            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids:
+            ref_dir = ref.cpp_rel.rsplit("/", 1)[0] if "/" in ref.cpp_rel else ""
+            if ref.plugin == "FO4SFCoreValues.esm" and (ref.cpp_rel, ref.local_id) not in registered_core_ids and (ref_dir, ref.local_id) not in registered_core_dirs:
                 errors.append(
                     f"{ref.cpp_rel}:{ref.line_no} native lookup FO4SFCoreValues.esm:0x{ref.local_id:06X} ({actual_edid}) "
                     f"is missing from NATIVE_CORE_VALUE_SPECS"

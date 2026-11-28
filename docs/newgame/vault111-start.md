@@ -685,6 +685,7 @@ the quest after `LooksWait` seconds; a `--no-looks` build does not wait.
 | 0 | started: as Starfield's startup quest, the guard, the move into the vault and the hold-off |
 | 1 | stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads) |
 | 10 | in the vault: the player stands at their pod |
+| 15 | pod exited: safe spawn or cryopod exit hook complete |
 | 20 | looks done: character creation closed, or LooksWait passed |
 | 30 | cog door opened: from its console |
 | 40 | on the surface: the elevator ride is over |

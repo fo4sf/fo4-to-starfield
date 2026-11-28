@@ -81,6 +81,36 @@ class CrossPluginResolutionTests(unittest.TestCase):
         self.assertIn("FO4SFRouteLoot.esm", catalog)
         self.assertEqual(catalog["FO4SFMission.esm"][0x816], ("QUST", "FO4SF_Codsworth01"))
         self.assertEqual(catalog["FO4SFMission.esm"][0x817], ("QUST", "FO4SF_Sanctuary01"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0x97A], ("WEAP", "FO4SF_ConcordRaiderSidearm"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0x97B], ("WEAP", "FO4SF_ConcordRaiderPrimary"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0x990], ("SCEN", "FO4SF_PrestonPostScene"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0x9C0], ("SCEN", "FO4SF_CodsworthPostScene"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xB60], ("CELL", "FO4SF_MissionHoldingCell"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xB80], ("REFR", "FO4SF_S4_PrestonBalconyMarker"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xB81], ("REFR", "FO4SF_S9_MuseumExitMarker"))
+        for wp_idx in range(8):
+            self.assertEqual(
+                catalog["FO4SFMission.esm"][0xB82 + wp_idx],
+                ("REFR", f"FO4SF_S9_PatrolWP_{wp_idx}"),
+            )
+        self.assertEqual(catalog["FO4SFMission.esm"][0xB8A], ("REFR", "FO4SF_DiamondCityMapMarker"))
+        self.assertEqual(catalog["FO4SFMission.esm"][0xB8B], ("GLOB", "FO4SF_R11FullMission"))
+        self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84B], ("FURN", "FO4SF_Sanctuary_WoodChair"))
+        self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84C], ("FURN", "FO4SF_Sanctuary_SleepingCot"))
+        self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84D], ("CONT", "FO4SF_Sanctuary_StorageCrate"))
+        self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84E], ("COBJ", "FO4SF_COBJ_Sanctuary_WoodChair"))
+        self.assertEqual(catalog["FO4SFWorkshop.esm"][0x84F], ("COBJ", "FO4SF_COBJ_Sanctuary_SleepingCot"))
+        self.assertEqual(catalog["FO4SFWorkshop.esm"][0x850], ("COBJ", "FO4SF_COBJ_Sanctuary_StorageCrate"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x898], ("AMMO", "FO4_Ammo10mm"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x899], ("WEAP", "FO4_10mmPistol"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x89A], ("WEAP", "FO4_Baton"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x89B], ("AMMO", "FO4_AmmoFusionCell"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x89C], ("AMMO", "FO4_CompanionAmmoFusionCell"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x89D], ("WEAP", "FO4_LaserMusket"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x89E], ("WEAP", "FO4_CompPrestonLaserMusket"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x89F], ("AMMO", "FO4_Ammo5mm"))
+        self.assertEqual(catalog["FO4SFCoreValues.esm"][0x8A0], ("WEAP", "FO4_Minigun"))
+        self.assertEqual(catalog["Starfield.esm"][0x000010], ("STAT", "MapMarker"))
         self.assertEqual(catalog["FO4SFRouteLoot.esm"][0x800], ("CONT", "FO4SF_Vault111ArmoryCase"))
 
         all_refs, psc_props_by_script = _collect_repo_psc_props()
@@ -161,6 +191,35 @@ class CrossPluginResolutionTests(unittest.TestCase):
             ms_w.write(ms_path)
 
             self.assertEqual(validate_staged_esms([rl_path, ms_path], catalog, psc_props_by_script), [])
+
+            # Valid synthetic FO4SFNewGame.esm (--fo4-10mm 1) binding VaultPistolBase -> FO4SFCoreValues.esm:0x000899
+            ng_10mm = PluginWriter(["Starfield.esm", "FO4Port.esm", "FO4SFCoreValues.esm"])
+            ng_10mm.add(
+                Record(
+                    b"QUST",
+                    ng_10mm.own(0x800),
+                    [
+                        (b"EDID", zbytes("FO4SF_NewGame")),
+                        (b"VMAD", _pack_vmad_single_obj("FO4SF_NewGameQuest", "VaultPistolBase", 0x02000899)),
+                    ],
+                )
+            )
+            ng_10mm_path = os.path.join(td, "FO4SFNewGame.esm")
+            ng_10mm.write(ng_10mm_path)
+            self.assertEqual(validate_staged_esms([ng_10mm_path], catalog, psc_props_by_script), [])
+            all_bindings = []
+            with open(os.path.join(ROOT, "dotnet", "NewGame", "Program.cs"), encoding="utf-8") as ng_h:
+                all_bindings.extend(parse_cs_vmad_bindings("dotnet/NewGame/Program.cs", ng_h.read()))
+            from fo4sf.core.cross_plugin_check import inspect_esm_binary
+
+            self.assertEqual(
+                validate_vault_pistol_sync(
+                    all_bindings,
+                    os.path.join(ROOT, ROUTE_LOOT_JSON_REL),
+                    staged_reports=[inspect_esm_binary(ng_10mm_path)],
+                ),
+                [],
+            )
 
             # Negative 1: duplicate EditorID colliding with FO4SFCoreValues.esm + unresolved CoreValues CNTO FormID
             bad_rl = PluginWriter(["Starfield.esm", "FO4SFCoreValues.esm"])

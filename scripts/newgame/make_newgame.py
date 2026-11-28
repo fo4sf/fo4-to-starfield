@@ -65,6 +65,7 @@ SURVIVAL_SCRIPTS = os.path.join(REPO, "scripts", "survival")
 REPUTATION_SCRIPTS = os.path.join(REPO, "scripts", "reputation")
 MAPMARKERS_SCRIPTS = os.path.join(REPO, "scripts", "mapmarkers")
 PLUGIN = "FO4SFNewGame.esm"
+PLACEMENT = "FO4SF_Placement"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
 SPECIAL = "FO4SF_NewGameSpecial"
@@ -77,6 +78,7 @@ STAGE_CONTRACT = {
     1: "stood down: not a new game, or no move into the vault (Starfield's opening is asked to start if the game still loads)",
     5: "mode chosen: start mode and survival choice stored",
     10: "in the vault: the player stands at their pod",
+    15: "pod exited: safe spawn or cryopod exit hook complete",
     20: "looks done: character creation closed, or LooksWait passed",
     30: "cog door opened: from its console",
     40: "on the surface: the elevator ride is over",
@@ -241,6 +243,42 @@ DEFAULT_FADE_HOLD = False
 DEFAULT_REQUIRE_PERSISTENT_ANCHOR = True
 ANCHOR_LINE = re.compile(r"vault anchor FO4Port\.esm:(?P<id>[0-9A-Fa-f]+) (?P<mode>persistent|temporary)\b")
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
+LIFT_PAIRS_JSON = os.path.join(REPO, "src", "fo4sf", "core", "lift_pairs.json")
+GAME_START_CONFIG_JSON = os.path.join(REPO, "src", "fo4sf", "core", "game_start_config.json")
+
+
+def load_interior_lift_contract(game=None, pair_id=None, json_path=None):
+    """Read interior lift values (rise_m, duration_s, play_event, reset_event, fade_lead_s) from lift_pairs.json."""
+    path = json_path or LIFT_PAIRS_JSON
+    if not os.path.isfile(path):
+        sys.exit(f"missing lift_pairs.json: {path}")
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    pairs = data.get("pairs") or {}
+    target_game = (game or "fo4").strip().lower()
+    chosen = None
+    for pid, p in pairs.items():
+        if not p.get("available"):
+            continue
+        if pair_id and pid.lower() == pair_id.lower():
+            chosen = p
+            break
+        if not pair_id and str(p.get("game", "")).lower() == target_game:
+            chosen = p
+            break
+    if not chosen:
+        sys.exit(f"no available lift pair for game={target_game!r} pair={pair_id!r} in {path}")
+    intr = chosen.get("interior") or {}
+    return {
+        "pair_id": chosen["id"],
+        "rise_m": float(intr["rise_m"]),
+        "duration_s": float(intr["duration_s"]),
+        "reset_motion_s": float(intr.get("reset_motion_s", 9.9)),
+        "play_event": str(intr["play_event"]),
+        "reset_event": str(intr["reset_event"]),
+        "fade_lead_s": float(intr["fade_lead_s"]),
+        "done_margin_s": float(intr["done_margin_s"]),
+    }
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
@@ -255,24 +293,28 @@ NATIVES = {
     # its startup quest), Game.FadeOutGame (its five-argument call), ObjectReference.WaitFor3DLoad (MQ101's own intro
     # waits so), Quest.StartNoWait and IsStarting (the hand back to MQ101, which waits for nothing)
     SCRIPT: {
-        "Actor": ["GetLevel", "EquipItem", "IsEquipped", "ModValue", "GetValue", "AddToFaction", "OnPlayerLoadGame"],
+        "Actor": ["GetLevel", "EquipItem", "UnequipItem", "IsEquipped", "IsDead", "ModValue", "GetValue", "AddToFaction", "PlayIdle", "SheatheWeapon", "OnPlayerLoadGame", "OnDying", "OnItemEquipped", "OnItemUnequipped"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification", "CenterOnCell"],
-        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "ShowRaceMenu", "ShowFirstPersonGeometry"],
+        "Game": ["GetPlayer", "GetFormFromFile", "FindClosestReferenceOfType", "SetInChargen", "SetCharGenHUDMode", "FadeOutGame", "IsFastTravelEnabled", "FastTravel", "ShowRaceMenu", "ShowFirstPersonGeometry", "ForceFirstPerson", "RequestAutoSave"],
         "GlobalVariable": ["GetValue", "SetValueInt", "SetValue"],
-        "InputEnableLayer": ["Create", "EnableHandscanner"],
+        "InputEnableLayer": ["Create", "Delete", "Reset", "DisablePlayerControls", "EnablePlayerControls",
+                             "EnableMovement", "EnableFighting", "EnableCamSwitch", "EnableLooking", "EnableSneaking",
+                             "EnableActivate", "EnableVATS", "EnableFavorites", "EnableMenu", "EnableHandscanner"],
+        "Math": ["sin", "cos", "sqrt"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",
-                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "GetOpenState", "SetOpen", "RemoveAllItems",
+                            "IsInInterior", "Is3DLoaded", "WaitFor3DLoad", "HasNode", "GetOpenState", "SetOpen", "PlaceAtMe", "RemoveItem", "RemoveAllItems",
                             "GetItemCount", "AddItem", "GetFormID", "GetPositionY", "GetPositionZ", "GetAngleZ",
-                            "SetMarkerDiscovered", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
-                            "BlockActivation", "OnActivate", "OnItemAdded"],
+                            "SetMarkerDiscovered", "AddToMap", "IsMapMarkerVisible", "CanFastTravelToMarker", "EnableFastTravel", "Reset", "GetBaseObject", "PlayAnimation", "Enable", "DisableNoWait",
+                            "IsDisabled", "BlockActivation", "OnActivate", "OnItemAdded", "OnItemRemoved", "RestoreValue"],
         "Quest": ["SetStage", "GetStage", "IsRunning", "IsStarting", "StartNoWait", "Stop", "CompleteQuest",
                   "SetObjectiveDisplayed", "SetObjectiveCompleted", "SetActive", "OnQuestStarted", "OnQuestInit", "OnStageSet"],
         "ScriptObject": ["StartTimer", "RegisterForAnimationEvent", "UnregisterForAnimationEvent", "OnAnimationEvent",
                          "RegisterForRemoteEvent", "UnregisterForRemoteEvent", "AddInventoryEventFilter",
-                         "CastAs", "CallFunction",
+                         "CastAs", "CallFunction", "CallFunctionNoWait", "SendCustomEvent",
                          "RegisterForMenuOpenCloseEvent", "UnregisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["GetCurrentRealTime", "Wait"],
+        "Weather": ["ForceActive"],
     },
     LOOKS: {
         "Debug": ["TraceUser"],
@@ -552,6 +594,14 @@ def tool_options(a):
         opts += ["--warfare-starts", a.warfare_starts]
     if getattr(a, "start_places", None):
         opts += ["--start-places", a.start_places]
+    if getattr(a, "game", None):
+        opts += ["--game", a.game]
+    if getattr(a, "game_start_config", None):
+        opts += ["--game-start-config", a.game_start_config]
+    if getattr(a, "fo4_10mm", None) is not None:
+        opts += ["--fo4-10mm", str(int(a.fo4_10mm))]
+    if getattr(a, "core_values_esm", None):
+        opts += ["--core-values-esm", a.core_values_esm]
     return opts
 
 
@@ -618,14 +668,17 @@ def cog_door_component(folder, port, starfield):
     return plan
 
 
-def exit_lift_component(folder, port, starfield):
+def exit_lift_component(folder, port, starfield, game=None, lift_pairs_json=None):
     """Validate the separate production asset stage, refusing all probe kits and any file drift."""
     import make_anim_console as mac
+    intr = load_interior_lift_contract(game=game, json_path=lift_pairs_json)
     with open(os.path.join(folder, "plan.json"), encoding="utf-8") as f:
         plan = json.load(f)
     if (plan.get("kind") != mac.LIFT_KIND or plan.get("plugins") != [mac.LIFT_PLUGIN]
-            or plan.get("states") != mac.LIFT_STATES or plan.get("rise_m") != 21.6
-            or plan.get("seconds") != 9.8667 or plan.get("event") != "Play01"):
+            or plan.get("states") != mac.LIFT_STATES
+            or abs(float(plan.get("rise_m") or 0.0) - intr["rise_m"]) > 1e-4
+            or abs(float(plan.get("seconds") or 0.0) - intr["duration_s"]) > 1e-4
+            or plan.get("event") != intr["play_event"]):
         sys.exit("--exit-lift needs the production floor-start lift component, never an animation probe")
     files = mac.probe_a.stage_files(folder)
     if files != plan.get("outputs") or any(p != mac.LIFT_PLUGIN and not p.startswith(("Data/meshes/", "Data/geometries/", "Data/materials/")) for p in files):
@@ -636,6 +689,23 @@ def exit_lift_component(folder, port, starfield):
         if plan.get("inputs", {}).get(name, {}).get("sha256") != sha256(path):
             sys.exit(f"exit lift was built against different {name} bytes")
     return plan
+
+
+def pipboy_wrist_component(folder):
+    """Validate a staged Pip-Boy wrist directory and return {Data/<rel>: sha256} asset outputs."""
+    ui_dir = os.path.join(REPO, "scripts", "ui")
+    if ui_dir not in sys.path:
+        sys.path.insert(0, ui_dir)
+    import stage_pipboy_wrist as spw
+    verified = spw.verify_staged_pipboy_wrist(folder)
+    rels = []
+    for key in ("nifs", "meshes", "local_mats", "local_textures"):
+        rels.extend(verified.get(key) or ())
+    outputs = {}
+    for rel in sorted(set(rels)):
+        src = os.path.join(folder, *rel.split("/"))
+        outputs[f"Data/{rel}"] = sha256(src)
+    return outputs
 
 
 def points_options(a):
@@ -669,6 +739,8 @@ def stage(a):
     cog = cog_door_component(cog_folder, a.port, a.starfield) if cog_folder else None
     lift_folder = getattr(a, "exit_lift", None)
     lift = exit_lift_component(lift_folder, a.port, a.starfield) if lift_folder else None
+    wrist_folder = getattr(a, "pipboy_wrist", None)
+    wrist_assets = pipboy_wrist_component(wrist_folder) if wrist_folder else None
     out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work)
@@ -685,7 +757,7 @@ def stage(a):
     if anchor is None:
         sys.exit(f"check printed no vault anchor line (persistent or temporary); attempt kept in {out}")
     src = extract_sources(a.content_resources, work)
-    scripts = [SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else []) + ([VERSION] if a.version else [])
+    scripts = [PLACEMENT, SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else []) + ([VERSION] if a.version else [])
     pex = {s: compile_script(a.compiler, s, src, os.path.join(out, "Data", "Scripts")) for s in scripts}
     for s in scripts:
         shutil.copy(os.path.join(HERE, s + ".psc"), os.path.join(out, s + ".psc"))
@@ -695,7 +767,7 @@ def stage(a):
     act_assets = vfa.stage_vault_activators(out, a.port, a.starfield)
     staged_assets = dict(act_assets)
     for label, comp, folder, checker in (("cog door", cog, cog_folder, cog_door_component),
-                                         ("lift", lift, lift_folder, exit_lift_component)):
+                                         ("lift", lift, lift_folder, lambda fd, prt, sf: exit_lift_component(fd, prt, sf, game=getattr(a, "game", None)))):
         if comp:
             if checker(folder, a.port, a.starfield) != comp:
                 sys.exit(f"{label} component changed during the build")
@@ -730,6 +802,7 @@ def stage(a):
                         "fade_hold": fade_hold_option(a),
                         "start_choice_backdrop": getattr(a, "start_choice_backdrop", None) or "empty_cell",
                         "show_unavailable_starts": int(bool(o_show_unavailable)),
+                        "fo4_10mm": getattr(a, "fo4_10mm", None),
                         "allow_temporary_anchor": bool(a.allow_temporary_anchor)},
             "anchor": anchor,
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
@@ -738,6 +811,22 @@ def stage(a):
         plan["cog_door"] = cog
     if lift:
         plan["exit_lift"] = lift
+    if wrist_assets is not None:
+        for data_rel, want in wrist_assets.items():
+            src_sub = data_rel.removeprefix("Data/")
+            src_file = os.path.join(wrist_folder, *src_sub.split("/"))
+            dest_file = os.path.join(out, *data_rel.split("/"))
+            if os.path.exists(dest_file):
+                if sha256(dest_file) == want:
+                    continue
+                sys.exit(f"pipboy wrist asset collides with staged output: {data_rel}")
+            os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+            shutil.copyfile(src_file, dest_file)
+            if sha256(dest_file) != want:
+                sys.exit(f"pipboy wrist asset changed while copying: {data_rel}")
+            staged_assets[data_rel] = want
+        plan["pipboy_wrist_assets"] = wrist_assets
+        plan["outputs"].update(wrist_assets)
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
@@ -788,6 +877,8 @@ def verify_dir(exp_dir, plan, port=None, core=None):
         same("cog door", os.path.join(exp_dir, *rel.split("/")), want)
     for rel, want in plan.get("exit_lift", {}).get("outputs", {}).items():
         same("exit lift", os.path.join(exp_dir, *rel.split("/")), want)
+    for rel, want in plan.get("pipboy_wrist_assets", {}).items():
+        same("pipboy wrist", os.path.join(exp_dir, *rel.split("/")), want)
     pinned = plan["checked_against_sha256"]
     for name, given in (("FO4Port.esm", port), ("FO4TerrainCore.esm", core)):
         path = os.path.join(exp_dir, name)
@@ -854,6 +945,7 @@ def fold(a):
     core_readme = read_text(os.path.join(a.core_dir, "README.txt"))
     stage_readme = read_text(os.path.join(a.stage, "README.txt"))
     act_outputs = plan.get("activator_assets", {})
+    wrist_outputs = plan.get("pipboy_wrist_assets", {})
     cog_outputs = plan.get("cog_door", {}).get("outputs", {})
     cog_plugins = plan.get("cog_door", {}).get("plugins", [])
     lift_outputs = plan.get("exit_lift", {}).get("outputs", {})
@@ -867,7 +959,7 @@ def fold(a):
         f.write(folded_readme(core_readme, stage_readme, plugins, plan["plugin"], os.path.abspath(a.stage)))
     shutil.copy2(os.path.join(a.stage, plan["plugin"]), os.path.join(out, plan["plugin"]))
     folded_assets = {}
-    for label, outputs in (("vault activator", act_outputs), ("cog door", cog_outputs), ("lift", lift_outputs)):
+    for label, outputs in (("vault activator", act_outputs), ("pipboy wrist", wrist_outputs), ("cog door", cog_outputs), ("lift", lift_outputs)):
         for rel, want in outputs.items():
             dst = os.path.join(out, *rel.split("/"))
             core_src = os.path.join(a.core_dir, *rel.split("/"))
@@ -991,7 +1083,8 @@ def summarize(lines):
          "stage_causes": {}, "mode_fade_requests": 0, "mode_box_waits": [], "mode_neutral_spot": False,
          "mode_fade_lifted": None, "start_record": None, "entered_start_room": None,
          "h00_suspects": {}, "surface_pre_setposition": None,
-         "story_landing_fade": None, "story_fade_reassert_ticks": [], "warfare_fade_reassert_ticks": []}
+         "story_landing_fade": None, "story_fade_reassert_ticks": [], "warfare_fade_reassert_ticks": [],
+         "vault_death_recovery": []}
     runs = split_runs(lines, LINE, carry=("version saved=",))
     s["runs"] = len(runs)
     s["earlier_completed"] = any(
@@ -1057,6 +1150,8 @@ def summarize(lines):
             s["landed"] = True
         elif msg.startswith("arrival discovery requested "):
             s["arrival_discovery_requested"] = msg[len("arrival discovery requested "):]
+        elif msg.startswith("arrival discovery silent="):
+            s["arrival_discovery_requested"] = msg[len("arrival discovery "):]
         elif msg.startswith("arrival discovery failed "):
             s["arrival_discovery_failed"] = msg[len("arrival discovery failed "):]
         elif msg.startswith("special default "):
@@ -1096,6 +1191,8 @@ def summarize(lines):
             s["map_setup"] = msg[len("map setup done "):]
         elif msg.startswith("pistol picked "):
             s["pistol_picked"] = msg[len("pistol picked "):]
+        elif msg.startswith("vault_death_recovery="):
+            s["vault_death_recovery"].append(msg[len("vault_death_recovery="):])
         elif msg.startswith("ascent "):
             s["ascent"].append(msg[len("ascent "):])
         elif msg.startswith("exit failed reason="):
@@ -1156,6 +1253,7 @@ def main(argv=None):
     s.add_argument("--out", required=True)
     s.add_argument("--cog-door", default=None, help="validated make_cog_door.py --production-cog stage; includes FO4SFVaultGearDoor.esm and its assets")
     s.add_argument("--exit-lift", default=None, help="validated make_anim_console.py --production-lift stage; enables the carrying ascent and includes its assets")
+    s.add_argument("--pipboy-wrist", default=None, help="validated stage_pipboy_wrist.py staging directory; copies split housing/screen wrist NIFs, meshes, materials, and textures")
     s.add_argument("--fo4", required=True)
     s.add_argument("--port", required=True)
     s.add_argument("--port-ids", required=True)
@@ -1212,6 +1310,14 @@ def main(argv=None):
                    help="path to warfare_starts.json (default: src/fo4sf/core/warfare_starts.json)")
     s.add_argument("--start-places", default=None,
                    help="path to start_places.json (default: src/fo4sf/core/start_places.json)")
+    s.add_argument("--game", default=None,
+                   help="target game id in game_start_config.json / lift_pairs.json (default: fo4)")
+    s.add_argument("--game-start-config", default=None,
+                   help="path to game_start_config.json (default: src/fo4sf/core/game_start_config.json)")
+    s.add_argument("--fo4-10mm", nargs="?", const=1, type=int, choices=(0, 1), default=None,
+                   help="1 places 0x820/0x821 on games.fo4.vault_pistol (FO4SFCoreValues.esm:0x899/0x898); 0 falls back to 0x822")
+    s.add_argument("--core-values-esm", default=None,
+                   help="path to staged FO4SFCoreValues.esm used to validate/auto-detect --fo4-10mm")
     s.add_argument("--allow-temporary-anchor", action="store_true",
                    help="build on a port whose vault cell has no persistent reference: anchor on its temporary COC "
                         "marker, and the script centers on the cell first (unverified during our own start's first load, "

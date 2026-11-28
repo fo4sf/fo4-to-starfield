@@ -196,7 +196,7 @@ class A5PipboyMissionTests(unittest.TestCase):
             res_default = stage_ini.generate_stage_ini(stage)
             ini_default = Path(str(res_default["ini_path"])).read_text(encoding="utf-8")
             self.assertIn("InvDataAnswers=0", ini_default)
-            self.assertIn("Arm=0", ini_default)
+            self.assertIn("Arm=1", ini_default)
             self.assertFalse((stage / "SFSE" / "Plugins" / cat.QUEST_OBJECTIVES_TSV_NAME).exists())
 
             res_a5 = stage_ini.generate_stage_ini(stage, a5_playable=True)
@@ -204,7 +204,7 @@ class A5PipboyMissionTests(unittest.TestCase):
             self.assertIn("PopulateInCall=1", ini_a5)
             self.assertIn("StatActions=1", ini_a5)
             self.assertIn("InvDataAnswers=1", ini_a5)
-            self.assertIn("Arm=0", ini_a5)  # Arm stays opt-in even in --a5-playable
+            self.assertIn("Arm=1", ini_a5)  # Arm=1 default (G12b)
             self.assertIn("MapBlockStarMap=0", ini_a5)
             tsv_path = Path(str(res_a5["quest_catalog_path"]))
             self.assertTrue(tsv_path.is_file())
@@ -214,7 +214,7 @@ class A5PipboyMissionTests(unittest.TestCase):
         shipped_ini = SHIPPED_INI.read_text(encoding="utf-8")
         main_cpp = MAIN_CPP.read_text(encoding="utf-8")
 
-        self.assertIn("\nArm=0\n", shipped_ini)
+        self.assertIn("\nArm=1\n", shipped_ini)
         arm_key_fn = main_cpp[main_cpp.index("void ArmKey(") : main_cpp.index("void ArmTick(")]
         arm_tick_fn = main_cpp[main_cpp.index("void ArmTick(") : main_cpp.index("std::uint32_t KeyThread(")]
         arm_raise_fn = main_cpp[main_cpp.index("void ArmRaise(") : main_cpp.index("void ArmLower(")]

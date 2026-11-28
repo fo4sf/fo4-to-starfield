@@ -1,0 +1,170 @@
+FO4SF Round 15 Wave A Item 4b: Unified Bidirectional Lift-Pair Papyrus Spec
+==============================================================================
+
+Purpose
+-------
+Unifies Vault 111 interior-to-surface ascent (stage 20/30 initial exit AND post-200 return up)
+and surface-to-interior descent (post-200 return down) into ONE shared lift-pair state machine
+on `FO4SF_NewGameQuest.psc`, driven entirely by per-game data from `src/fo4sf/core/lift_pairs.json`
+(passed into quest properties by `dotnet/NewGame/Program.cs` — zero hardcoded Fallout 4 IDs
+or coordinates in shared Papyrus logic).
+
+Note on Papyrus loader limits (`tests/test_papyrus_strings.py`):
+Keep every `{ ... }` doc comment and string literal <= 3,072 bytes; place explanatory notes in `;`
+comments (stripped by the compiler).
+
+1. Quest Properties (populated from `lift_pairs.json` by `dotnet/NewGame`)
+--------------------------------------------------------------------------
+string Property ExitLiftPlugin = "FO4SFExitLift.esm" Auto Const
+float Property SurfaceCogLocalX = -1275.5824 Auto Const
+float Property SurfaceCogLocalY = 1296.0703 Auto Const
+float Property SurfaceCogLocalZ = 33.253544 Auto Const
+float Property SurfaceLiftDrop = 59.1425 Auto Const
+float Property SurfaceLiftSeconds = 18.6667 Auto Const
+float Property SurfaceLiftFadeAt = 7.533 Auto Const
+float Property SurfaceLiftDoneMargin = 0.25 Auto Const
+int Property CoreStaticSurfaceLiftBaseId = 0x0A2D4B Auto Const
+
+2. Shared State Variables
+-------------------------
+ObjectReference surfaceCogRef = None
+bool surfaceCogActivationRegistered = false
+bool surfaceCogLoggedArrival = false
+bool liftPairActive = false
+bool liftPairDescending = false
+bool liftPairDone = false
+bool liftPairTransferred = false
+bool liftPairTransferPending = false
+bool liftPairFadeStarted = false
+ObjectReference liftPairActiveRef = None
+Cell liftPairStartCell = None
+WorldSpace liftPairStartWorld = None
+float liftPairStartedAt = 0.0
+float liftPairStartX = 0.0
+float liftPairStartY = 0.0
+float liftPairStartZ = 0.0
+
+3. Required Shared Functions
+----------------------------
+
+A. `ObjectReference Function EnsureSurfaceLiftCog(Actor player)`
+   - Guards: returns `None` if `player == None || !player.Is3DLoaded() || player.IsInInterior()`.
+   - Verifies `WorldSpace hostWorld = ResolveHostWorld()` and `player.GetWorldSpace() == hostWorld`.
+   - Computes target world coordinates in `FO4Core_Commonwealth`:
+       cx = SurfaceCogLocalX + MergeOffsetX
+       cy = SurfaceCogLocalY + MergeOffsetY
+       cz = SurfaceCogLocalZ
+   - Guards cell loading: only resolves when player is within 120.0 m XY of `(ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY)`.
+   - When `surfaceCogRef == None || !surfaceCogRef.Is3DLoaded()`:
+     - Resolves `Form cogBase = Game.GetFormFromFile(CoreStaticSurfaceLiftBaseId, CorePlugin)` (`FO4TerrainCore.esm:0x0A2D4B`, overridden by `FO4SFExitLift.esm`).
+     - Re-resolves the merged-overlay runtime `FF` instance via `Game.FindClosestReferenceOfType(cogBase, cx, cy, cz, 2.0)` (radius 2 m; no `PlaceAtMe`, no `SetPosition`).
+   - Ensures `OnActivate` remote event registration (`!surfaceCogActivationRegistered`):
+     - `RegisterForRemoteEvent(surfaceCogRef, "OnActivate")`
+     - `surfaceCogActivationRegistered = true`
+   - Logs once per arrival (`!surfaceCogLoggedArrival`) with hex ID and cog's real runtime position:
+       `lift_pair surface_cog ready ref=<0xHEX> base=<CorePlugin>:<0xHEX> pos=<rx> <ry> <rz> rotz=<rrot>`
+   - Returns `surfaceCogRef`.
+
+B. `bool Function StartPairedLiftRide(Actor player, bool descending)`
+   - Guards: if `liftPairActive || liftPairTransferred || liftPairTransferPending || player == None`: return `false`.
+   - `string dir = "up"` (or `"down"` when `descending`).
+   - Resolves target reference `ObjectReference lift` and checks rider & platform preconditions:
+     - If `!descending` (interior -> surface):
+       - `lift = Game.GetFormFromFile(LiftId, VaultPlugin) as ObjectReference`
+       - `Form base = Game.GetFormFromFile(LiftBaseId, VaultPlugin)`
+       - Requires `player.Is3DLoaded() && player.IsInInterior() && StandsInVault(player)`
+       - Requires `lift != None && lift.Is3DLoaded() && lift.GetParentCell() == player.GetParentCell() && lift.GetBaseObject() == base`
+       - Requires `Near(player, PlatformX, PlatformY, PlatformZ, PlatformRadius)`
+     - If `descending` (surface -> interior):
+       - `lift = EnsureSurfaceLiftCog(player)`
+       - Requires `player.Is3DLoaded() && !player.IsInInterior() && lift != None && lift.Is3DLoaded()`
+       - Requires `Near(player, ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ, PlatformRadius)`
+   - Initializes state BEFORE `PlayAnimation("Play01")`:
+     - `liftPairActiveRef = lift`, `liftPairStartCell = player.GetParentCell()`, `liftPairStartWorld = player.GetWorldSpace()`
+     - `liftPairStartX = player.GetPositionX()`, `liftPairStartY = player.GetPositionY()`, `liftPairStartZ = player.GetPositionZ()`
+     - `liftPairDescending = descending`, `liftPairDone = false`, `liftPairTransferred = false`, `liftPairFadeStarted = false`
+     - `RegisterForAnimationEvent(lift, "Done")`
+     - `liftPairStartedAt = Utility.GetCurrentRealTime()`, `liftPairActive = true`
+   - Plays `bool accepted = lift.PlayAnimation("Play01")` (with one bounded `Reset()` + retry if refused, restoring rider to starting pad before retry).
+   - Logs exact trace line:
+       `lift_pair ride start dir=<up|down> accepted=<accepted> ref=<lift> from_z=<liftPairStartZ> stage=<GetStage()>`
+   - If `!accepted`: clears latches via `FailPairedLift("play_refused")` and returns `false`.
+   - If `!descending`: calls `RunSharedMapSetup()` and `PrepareArrivalMarkerDuringRide()`.
+   - Triggers `StartTimer(0.2, 1)` for fast 0.2 s polling.
+   - Returns `true`.
+
+C. `Function CheckPairedLiftRide(Actor player)`
+   - Called on the 0.2 s fast tick whenever `liftPairActive || liftPairTransferPending || surfaceMovedAt > 0.0`.
+   - `string dir = "down"` if `liftPairDescending` else `"up"`.
+   - Phase 1 (`liftPairTransferPending`):
+     - If `!liftPairDescending` (`dir=up`):
+       - Drives `FinishSurface(player)`. Once `arrivalWorld != None && !player.IsInInterior() && player.Is3DLoaded()`:
+         - Clears `liftPairTransferPending = false`, `liftPairTransferred = false`.
+         - Calls `EnsureSurfaceLiftCog(player)` (and `ResetSurfaceLiftCog()` if `surfaceCogRef` was previously in `StateB_Idle`, playing `"Play02"` / `Reset()` so it rests in `StateA_Idle` top-open).
+         - Logs exact trace line:
+             `lift_pair ride arrived dir=up z=<player.GetPositionZ()> cell=<player.GetParentCell()> world=<player.GetWorldSpace()>`
+         - Initial exit (`GetStage() < 40`): `AdvanceTo(40)` -> `CheckLanding` -> `AdvanceTo(200)`.
+         - Post-200 return up: lifts fade (`Game.FadeOutGame(False, True, 0.0, 0.5, False)`), resets `leftArrivalPad = false; returnLiftArmed = false`.
+     - If `liftPairDescending` (`dir=down`):
+       - Waits for `player.Is3DLoaded() && player.IsInInterior() && StandsInVault(player)`.
+       - Timeout safety after 15.0 s: re-issues `MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)`.
+       - Once inside Vault 111:
+         - Calls `ResetVaultExitLift()` so interior cage rests in `StateA_Idle` (floor pose).
+         - Clears `liftPairTransferPending = false`, `liftPairTransferred = false`, `liftPairFadeStarted = false`.
+         - Lifts fade: `Game.FadeOutGame(False, True, 0.0, 0.5, False)`.
+         - Logs exact trace line:
+             `lift_pair ride arrived dir=down z=<player.GetPositionZ()> cell=<player.GetParentCell()> world=<player.GetWorldSpace()>`
+   - Phase 2 (`liftPairActive`):
+     - `float elapsed = Utility.GetCurrentRealTime() - liftPairStartedAt`
+     - `float dur = SurfaceLiftSeconds` (if `liftPairDescending`) else `LiftSeconds`
+     - `float fadeAt = SurfaceLiftFadeAt` (if `liftPairDescending`) else `(LiftSeconds - 1.1)`
+     - Timeout (`elapsed > dur + 30.0`): abort & return rider to start platform.
+     - Unexpected cell/world change guard: abort & return rider to start platform.
+     - Fade trigger: `if !liftPairFadeStarted && elapsed >= fadeAt`:
+       - `liftPairFadeStarted = true`
+       - `Game.FadeOutGame(True, True, 0.0, 1.0, True)`
+     - Arrival / transfer trigger:
+       - For `dir=up`: `liftPairDone && AtLiftTop(player)` (requires `Done` >= `LiftSeconds - LiftDoneMargin` and physical Z within `+-0.75 m` of `liftPairStartZ + LiftRise`).
+       - For `dir=down`: `(liftPairDone || elapsed >= SurfaceLiftFadeAt + 1.5) && (player.GetPositionZ() <= liftPairStartZ - 3.0 || elapsed >= SurfaceLiftFadeAt + 2.0)` (transfers while faded to black, BEFORE `10.333s ToggleCollision`!).
+     - Sets latches BEFORE any yielding native:
+       - `liftPairTransferred = true`
+       - `liftPairActive = false`
+       - `liftPairTransferPending = true`
+       - `UnregisterForAnimationEvent(liftPairActiveRef, "Done")`
+     - Logs exact trace line:
+         `lift_pair transfer dir=<d> z=<z> drop=<startZ-z> elapsed=<s>`
+     - Executes transfer:
+       - `dir=up`: calls `Surface(player)`
+       - `dir=down`: resolves `vAnchor = Game.GetFormFromFile(VaultAnchorId, VaultPlugin) as ObjectReference`, calls `player.MoveTo(vAnchor, PlatformX - AnchorX, PlatformY - AnchorY, PlatformZ + 0.2 - AnchorZ, False, False)`.
+
+D. `Function RecoverPairedLiftOnLoad(Actor player)`
+   - Called from `Event Actor.OnPlayerLoadGame(Actor akSender)` (covers save/load AND death-reload!).
+   - `bool wasMidRide = liftPairActive || liftPairTransferred || liftPairTransferPending || surfaceMovedAt > 0.0`
+   - `string dir = "down"` if `liftPairDescending` else `"up"`
+   - If `liftPairActiveRef != None`: `UnregisterForAnimationEvent(liftPairActiveRef, "Done")`
+   - Resets all transient ride latches (`liftPairActive = false`, `liftPairDone = false`, `liftPairTransferred = false`, `liftPairTransferPending = false`, `liftPairFadeStarted = false`, `liftPairActiveRef = None`, `liftPairStartCell = None`, `liftPairStartWorld = None`, `surfaceMovedAt = 0.0`, `surfaceMoves = 0`, `surfaceSets = 0`, `asked = false`, `returnAsked = false`, `returnVaultAsked = false`).
+   - Invalidates `surfaceCogRef = None`, `surfaceCogActivationRegistered = false`, `surfaceCogLoggedArrival = false` after every load so `EnsureSurfaceLiftCog(player)` re-resolves the runtime `FF` instance cleanly.
+   - If `wasMidRide`:
+     - Lifts black fade: `Game.FadeOutGame(False, True, 0.0, 0.5, False)`.
+     - If `player != None && player.IsInInterior()`: calls `ReturnPlayerToVaultPlatform(player)` (repositions to `PlatformX/Y/Z + 0.2` and resets interior lift).
+     - Else if `player != None`: repositions to `ArrivalX + MergeOffsetX, ArrivalY + MergeOffsetY, ArrivalZ` and resets `surfaceCogRef` (`PlayAnimation("Play02")` / `Reset()`).
+     - Logs exact trace line:
+         `lift_pair reload recovered dir=<up|down> stage=<GetStage()> interior=<player.IsInInterior()>`
+   - If `player != None && !player.IsInInterior() && GetStage() >= 40`:
+     - Calls `EnsureSurfaceLiftCog(player)` so the surface cog is re-resolved and activated-ready on any exterior save load.
+   - Restarts `StartTimer(1.0, 1)`.
+
+4. `OnAnimationEvent` & `OnActivate` Integration
+-------------------------------------------------
+- `Event OnAnimationEvent(ObjectReference akSource, string asEventName)`:
+  - Matches `liftPairActive && akSource == liftPairActiveRef && asEventName == "Done"`.
+  - Uses `dur = SurfaceLiftSeconds` (if `liftPairDescending`) else `LiftSeconds`, `margin = SurfaceLiftDoneMargin` (if `liftPairDescending`) else `LiftDoneMargin`.
+  - Sets `liftPairDone = true` when `elapsed >= dur - margin`.
+- `Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)`:
+  - When `surfaceCogRef != None && akSender == surfaceCogRef && akActionRef == player`:
+    - If `!liftPairActive && !liftPairTransferPending && !returnAsked && ReturnMessage != None`:
+      - Shows `ReturnMessage.Show()`. On button `0`: calls `StartPairedLiftRide(player, true)`.
+- `CheckReturnLift(Actor player)`:
+  - Ensures `EnsureSurfaceLiftCog(player)` when in `FO4Core_Commonwealth` near the hilltop.
+  - Interior prompt (`button == 0`) calls `StartPairedLiftRide(player, false)` instead of raw `MoveTo(eAnchor)`.
+  - Surface pad prompt (`button == 0`) calls `StartPairedLiftRide(player, true)` instead of raw `MoveTo(vAnchor)`.

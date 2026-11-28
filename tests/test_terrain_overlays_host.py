@@ -249,6 +249,40 @@ class TerrainOverlaysHostTests(unittest.TestCase):
             self.assertAlmostEqual(mws[0][1], -1.2)
             self.assertEqual(mws[0][2], 0x02000803)
 
+    def test_earth_gravity_overrides_mars_orbited_data_fnam(self) -> None:
+        core_scripts = str(ROOT / "scripts" / "core")
+        if core_scripts not in sys.path:
+            sys.path.insert(0, core_scripts)
+        import make_core_bundle as mcb  # type: ignore
+
+        p = self.root / "mars_gravity_test.esm"
+        w = esm.PluginWriter(["Starfield.esm"], esm.ESM)
+        # Pack exact 24-byte OrbitedData FNAM: <d f f f i (8+4+4+4+4 = 24)
+        fnam24 = struct.pack("<dfffi", 0.125, 0.107, 3390.0, 0.38, 0)
+        pndt = esm.Record(
+            b"PNDT",
+            0x03F59A,
+            [
+                (b"EDID", esm.zbytes("MarsPlanetData")),
+                (b"BFCB", esm.zbytes("TESFullName_Component")),
+                (b"FULL", esm.zbytes("Mars")),
+                (b"BFCE", b""),
+                (b"BDST", b""),
+                (b"ANAM", esm.zbytes("Mars")),
+                (b"DNAM", struct.pack("<I", 0) + b"\x00"),
+                (b"FNAM", fnam24),
+                (b"GNAM", struct.pack("<III", 0, 0, 4)),
+                (b"BDED", b""),
+            ],
+        )
+        w.add(pndt)
+        w.write(str(p), compress=False)
+        self.assertAlmostEqual(mcb.read_planet_gravity_g(str(p)), 0.38, places=4)
+        changed = mcb.patch_planet_gravity_earth(str(p))
+        self.assertTrue(changed)
+        self.assertAlmostEqual(mcb.read_planet_gravity_g(str(p)), 1.0, places=4)
+        self.assertFalse(mcb.patch_planet_gravity_earth(str(p)))
+
     def test_optional_live_mars_registration_sha256_parity(self) -> None:
         live_data = os.environ.get("FO4SF_STARFIELD_DATA", "").strip()
         if not live_data:

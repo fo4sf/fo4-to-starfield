@@ -485,10 +485,11 @@ def format_stage_ini(
     shell_vitals_fill: int = 1,
     suppress_data_menu: int = 0,
     tab_opens_pipboy: int = 0,
-    arm: int = 0,
+    hide_starfield_watch: int = 1,
+    arm: int = 1,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
-    require_pickup: int = 0,
+    require_pickup: int = 1,
     boot_movie: str = "",
     boot_on_first_open: int = 0,
     special_menu: int = 0,
@@ -500,6 +501,9 @@ def format_stage_ini(
     map_block_starmap: int = 0,
     map_heading_at: str = "88",
     setup_show_unavailable: int = 0,
+    screen_source: str = "2d_imenu",
+    replace_mission_label: int = 1,
+    quest_hud_label: str = "QUEST",
 ) -> str:
     """Format a clean Stage=2 FO4SFPipboyMenu.ini with zero [Kit], [Page ...], or Kit* entries."""
     if not code_obj_names:
@@ -543,9 +547,13 @@ def format_stage_ini(
         f"ShellVitalsFill={1 if shell_vitals_fill else 0}",
         f"SuppressDataMenu={1 if suppress_data_menu else 0}",
         f"TabOpensPipboy={1 if tab_opens_pipboy else 0}",
+        f"HideStarfieldWatch={1 if hide_starfield_watch else 0}",
         f"StatActions={1 if stat_actions else 0}",
         f"InvDataAnswers={1 if inv_data_answers else 0}",
         f"RequirePickup={1 if require_pickup else 0}",
+        f"ScreenSource={screen_source}",
+        f"ReplaceMissionLabel={1 if replace_mission_label else 0}",
+        f"QuestHudLabel={quest_hud_label}",
         f"BootMovie={boot_movie}",
         f"BootOnFirstOpen={1 if (boot_movie and boot_on_first_open) else 0}",
         f"SpecialMenu={1 if special_menu else 0}",
@@ -624,10 +632,11 @@ def generate_stage_ini(
     shell_vitals_fill: int = 1,
     suppress_data_menu: int = 0,
     tab_opens_pipboy: int = 0,
-    arm: int = 0,
+    hide_starfield_watch: int = 1,
+    arm: int = 1,
     stat_actions: int = 0,
     inv_data_answers: int = 0,
-    require_pickup: int = 0,
+    require_pickup: int = 1,
     boot_movie_name: str = DEFAULT_BOOT_MOVIE,
     boot_on_first_open: int = 0,
     special_menu: int = 0,
@@ -636,6 +645,9 @@ def generate_stage_ini(
     map_menus: str = DEFAULT_MAP_MENUS,
     map_block_starmap: int = 0,
     setup_show_unavailable: int = 0,
+    screen_source: str = "2d_imenu",
+    replace_mission_label: int = 1,
+    quest_hud_label: str = "QUEST",
     a5_playable: bool = False,
     omit: Sequence[str] = (),
     allow_omit: Sequence[str] = (),
@@ -709,6 +721,7 @@ def generate_stage_ini(
         shell_vitals_fill=shell_vitals_fill,
         suppress_data_menu=suppress_data_menu,
         tab_opens_pipboy=tab_opens_pipboy,
+        hide_starfield_watch=hide_starfield_watch,
         arm=arm,
         stat_actions=stat_actions,
         inv_data_answers=inv_data_answers,
@@ -722,6 +735,9 @@ def generate_stage_ini(
         map_menus=map_menus,
         map_block_starmap=map_block_starmap,
         setup_show_unavailable=setup_show_unavailable,
+        screen_source=screen_source,
+        replace_mission_label=replace_mission_label,
+        quest_hud_label=quest_hud_label,
     )
     assert_no_kit_entries(ini_text)
 
@@ -773,10 +789,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--shell-vitals-fill", type=int, choices=(0, 1), default=1, help="C4-2 real HP/AP vitals on kShow (default 1; 0 = exact 2f path)")
     ap.add_argument("--suppress-data-menu", type=int, choices=(0, 1), default=0, help="C4-4 opt-in hide-only Starfield DataMenu suppression (default 0)")
     ap.add_argument("--tab-opens-pipboy", type=int, choices=(0, 1), default=0, help="C4-4 opt-in closed-Pip-Boy Tab open with 500 ms blocking cooldown (default 0)")
-    ap.add_argument("--arm", type=int, choices=(0, 1), default=0, help="Opt-in 1i/N1 first-person arm PlayIdle (default 0: T7 off)")
+    ap.add_argument("--hide-starfield-watch", type=int, choices=(0, 1), default=1, help="D7(b) hide Starfield HUDMenu BottomLeftGroup_mc wrist watch (default 1; 0 = one-line rollback)")
+    ap.add_argument("--arm", type=int, choices=(0, 1), default=1, help="First-person wrist arm raise PlayIdle (default 1: G12b)")
     ap.add_argument("--stat-actions", type=int, choices=(0, 1), default=0, help="Enable 1j STAT actions (default 0)")
     ap.add_argument("--inv-data-answers", type=int, choices=(0, 1), default=0, help="Enable 1k INV/DATA answers (default 0)")
-    ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=0, help="Enable X2 RequirePickup (default 0)")
+    ap.add_argument("--require-pickup", type=int, choices=(0, 1), default=1, help="Enable X2 RequirePickup (default 1)")
     ap.add_argument("--boot-movie", default=DEFAULT_BOOT_MOVIE, help="Boot sequence SWF base name")
     ap.add_argument("--boot-on-first-open", type=int, choices=(0, 1), default=0, help="Opt-in boot movie once after pickup (default 0: T7 off)")
     ap.add_argument("--special-menu", type=int, choices=(0, 1), default=0, help="Enable 1k FO4SF_SpecialMenu host (default 0)")
@@ -798,9 +815,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show available:false start rows greyed out on FO4SF_SetupMenu (default 0: leave off)",
     )
     ap.add_argument(
+        "--screen-source",
+        default="2d_imenu",
+        choices=("2d_imenu", "3d_rtt"),
+        help="Pip-Boy screen source seam (default 2d_imenu; future 3d_rtt)",
+    )
+    ap.add_argument(
+        "--replace-mission-label",
+        type=int,
+        choices=(0, 1),
+        default=1,
+        help="Rewrite Starfield MISSION HUD label to QuestHudLabel (default 1 for FO4; 0 rollback)",
+    )
+    ap.add_argument(
+        "--quest-hud-label",
+        default="QUEST",
+        help="HUD quest label replacement when ReplaceMissionLabel=1 (default QUEST)",
+    )
+    ap.add_argument(
         "--a5-playable",
         action="store_true",
-        help="A5 playable preset: enable PopulateInCall=1, StatActions=1, InvDataAnswers=1 and stage FO4SFPipboyQuestObjectives.tsv (Arm stays 0 unless --arm 1)",
+        help="A5 playable preset: enable PopulateInCall=1, StatActions=1, InvDataAnswers=1 and stage FO4SFPipboyQuestObjectives.tsv (Arm=1 default)",
     )
     ap.add_argument("--expect-file", default=None, help="Optional file of expected BGSCodeObj names to cross-check against SWF string pools")
     ap.add_argument("--omit", action="append", default=[], help="Omit a BGSCodeObj name from CodeObjNames= (repeatable)")
@@ -829,6 +864,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             shell_vitals_fill=args.shell_vitals_fill,
             suppress_data_menu=args.suppress_data_menu,
             tab_opens_pipboy=args.tab_opens_pipboy,
+            hide_starfield_watch=args.hide_starfield_watch,
             arm=args.arm,
             stat_actions=args.stat_actions,
             inv_data_answers=args.inv_data_answers,
@@ -841,6 +877,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             map_menus=args.map_menus,
             map_block_starmap=args.map_block_starmap,
             setup_show_unavailable=args.setup_show_unavailable,
+            screen_source=args.screen_source,
+            replace_mission_label=args.replace_mission_label,
+            quest_hud_label=args.quest_hud_label,
             a5_playable=args.a5_playable,
             omit=args.omit,
             allow_omit=args.allow_omit,

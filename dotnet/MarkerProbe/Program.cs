@@ -1,9 +1,9 @@
 // MarkerProbe: the map marker probe's plugin (FAL-771 / FAL-489, note sections 34 and 36).
 //
 // FO4SFMarkerProbe.esm (master Starfield.esm only):
-//   QUST  FO4SF_MarkerProbeQuest  start game enabled, stages 10 20 30 40 50 60 70, script FO4SF_MarkerProbeQuest, NO properties
+//   QUST  FO4SF_MarkerProbeQuest  start game enabled, stages 10 20 30 40 50 60 70 80, script FO4SF_MarkerProbeQuest, NO properties
 // Nothing else: the probe finds the markers it reads and moves with Game.GetFormFromFile (FO4TerrainCore.esm 0x0A775B, FO4SFMapMarkers.esm
-// 0x0008F2 / 0x000900 / 0x000901), so this plugin overrides no record and masters neither of them.
+// 0x0008F2 / 0x000900 / 0x000901 / 0x000902), so this plugin overrides no record and masters neither of them.
 //
 // usage: MarkerProbe build <out dir>             writes <out dir>/FO4SFMarkerProbe.esm
 //        MarkerProbe check <plugin>              exit 1 on a mismatch
@@ -29,7 +29,7 @@ static class MarkerProbe
     // the layout (scripts/mapmarkers/FO4SF_MarkerProbeQuest.psc carries the same quest id and stages)
     const uint QuestId = 0x800;
     const string QuestEdid = "FO4SF_MarkerProbeQuest", Script = "FO4SF_MarkerProbeQuest";
-    static readonly ushort[] Stages = { 10, 20, 30, 40, 50, 60, 70 };
+    static readonly ushort[] Stages = { 10, 20, 30, 40, 50, 60, 70, 80 };
 
     static FormKey Own(uint id) => new(Plugin, id);
 

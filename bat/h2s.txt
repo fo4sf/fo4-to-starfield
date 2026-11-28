@@ -1,0 +1,2 @@
+player.additem 1E2B18 1
+player.equipitem 1E2B18

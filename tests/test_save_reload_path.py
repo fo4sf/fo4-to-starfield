@@ -40,12 +40,20 @@ def _make_global(val: float):
 class SaveReloadPathTests(unittest.TestCase):
     def test_a6_newgame_surface_mid_exit_return_and_stage_guard_idempotency(self) -> None:
         psc = NEWGAME_PSC.read_text(encoding="utf-8")
-        funcs = ("Actor.OnPlayerLoadGame", "ApplyStage")
+        funcs = (
+            "Actor.OnPlayerLoadGame",
+            "RecoverPairedLiftOnLoad",
+            "ApplyStage",
+            "ClearVaultSaveLock",
+            "RelockVaultSaving",
+        )
         vars_csv = (
-            "applied, h00SuspectsRead, rideActive, rideDone, rideTransferred, "
-            "ridingLift, ridingCell, surfaceMovedAt, surfaceMoves, surfaceSets, "
-            "exitUsedFallback, asked, returnSurfacePending, returnVaultAsked, "
-            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
+            "applied, h00SuspectsRead, liftPairActive, liftPairDone, liftPairTransferred, liftPairTransferPending, liftPairFadeStarted, "
+            "liftPairActiveRef, liftPairStartCell, liftPairStartWorld, liftPairDescending, liftPairTransferRetries, "
+            "surfaceMovedAt, surfaceMoves, surfaceSets, surfaceFadeInDone, "
+            "exitUsedFallback, asked, returnAsked, returnSurfacePending, returnVaultAsked, "
+            "returnSurfaceWaitTicks, returnSurfaceTries, exitFailures, vaultRecoveryTriggered, "
+            "vaultPodAutosaved, vaultSavingRelocked"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(NEWGAME_PSC), "exec")
 
@@ -60,28 +68,41 @@ class SaveReloadPathTests(unittest.TestCase):
             fade_calls: list[int] = []
             gm = _make_global(game_mode)
             lift_obj = SimpleNamespace(name="V111ElevatorREF") if mid_exit else None
-            player = SimpleNamespace(name="PlayerRef")
+            player = SimpleNamespace(name="PlayerRef", IsInInterior=lambda: True)
             ns = dict(
                 LogName="fo4sf_newgame",
                 GameModeGlobal=gm,
                 applied=stage,
                 h00SuspectsRead=True,
-                rideActive=mid_exit,
-                rideDone=mid_exit,
-                rideTransferred=False,
-                ridingLift=lift_obj,
-                ridingCell="FO4Port_Vault111Cryo" if mid_exit else None,
+                liftPairActive=mid_exit,
+                liftPairDone=mid_exit,
+                liftPairDescending=False,
+                liftPairTransferred=False,
+                liftPairTransferPending=False,
+                liftPairFadeStarted=False,
+                liftPairActiveRef=lift_obj,
+                liftPairStartCell="FO4Port_Vault111Cryo" if mid_exit else None,
+                liftPairStartWorld=None,
+                liftPairTransferRetries=0,
                 surfaceMovedAt=12.5 if mid_exit else 0.0,
                 surfaceMoves=1 if mid_exit else 0,
                 surfaceSets=1 if mid_exit else 0,
+                surfaceFadeInDone=False,
                 exitUsedFallback=mid_exit,
                 asked=True,
+                returnAsked=False,
                 returnSurfacePending=return_pending,
                 returnVaultAsked=return_pending,
                 returnSurfaceWaitTicks=7 if return_pending else 0,
                 returnSurfaceTries=2 if return_pending else 0,
                 exitFailures=0,
+                vaultRecoveryTriggered=False,
+                vaultPodAutosaved=False,
+                vaultSavingRelocked=False,
+                StandsInVault=lambda *_: False,
+                CancelTimer=lambda *_: None,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: user_logs.append(n), Notification=lambda *a: None),
+                Game=SimpleNamespace(FadeOutGame=lambda *_: None),
                 GetStage=lambda: stage,
                 SetObjectiveDisplayed=lambda *a: None,
                 SetObjectiveCompleted=lambda *a: None,
@@ -91,6 +112,10 @@ class SaveReloadPathTests(unittest.TestCase):
                 ReleaseStoryLandingFade=lambda: fade_calls.append(1),
                 UnregisterForAnimationEvent=lambda ref, ev: unreg_anims.append((ref, ev)),
                 ReturnPlayerToVaultPlatform=lambda p: returned_to_plat.append(p),
+                ArriveOnInteriorLift=lambda p, why='': returned_to_plat.append(p),
+                ResetSurfaceLiftCog=lambda *_: None,
+                EnsureLoadHookRegistered=lambda p: None,
+                SyncPipboyOwnedWornState=lambda p: False,
                 StartTimer=lambda sec, tid: timers.append((sec, tid)),
                 Trace=lambda m: logs.append(str(m)),
             )
@@ -122,16 +147,16 @@ class SaveReloadPathTests(unittest.TestCase):
 
         # 3. Mid-exit save/reload at stage 30 recovers rider cleanly onto lift platform
         ns_mid, logs_mid, timers_mid, _, ret_mid, unreg_mid, _, _, _, _ = _run_reload(30, mid_exit=True)
-        self.assertFalse(ns_mid["rideActive"])
-        self.assertFalse(ns_mid["rideDone"])
-        self.assertFalse(ns_mid["rideTransferred"])
-        self.assertIsNone(ns_mid["ridingLift"])
+        self.assertFalse(ns_mid["liftPairActive"])
+        self.assertFalse(ns_mid["liftPairDone"])
+        self.assertFalse(ns_mid["liftPairTransferred"])
+        self.assertIsNone(ns_mid["liftPairActiveRef"])
         self.assertEqual(ns_mid["surfaceMovedAt"], 0.0)
         self.assertFalse(ns_mid["asked"])
         self.assertEqual(len(ret_mid), 1)
         self.assertEqual(len(unreg_mid), 1)
         self.assertEqual(timers_mid, [(1.0, 1)])
-        self.assertTrue(any("exit reload recovered stage=30" in m for m in logs_mid), logs_mid)
+        self.assertTrue(any("lift_pair reload recovered dir=up stage=30" in m for m in logs_mid), logs_mid)
 
         # 4. Mid-return-lift save/reload at stage 200 clears pending return state
         ns_ret, logs_ret, timers_ret, _, _, _, _, _, _, _ = _run_reload(200, return_pending=True)
@@ -153,7 +178,8 @@ class SaveReloadPathTests(unittest.TestCase):
             "dialogueMenuOpen, talkBoxOpen, codsworthTalkReloaded, choicesCount, completed, talkProxy, "
             "dialogueSeen, choice1Seen, choice2Seen, choice3Seen, choice4Seen, "
             "applied, pendingStage, pendingStageBy, "
-            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks"
+            "sceneTalkPending, sceneMenuOpened, scenePhase1Entered, scenePhase1At, sceneCheckTicks, "
+            "s3Stage50AttemptOpened"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(CODSWORTH_PSC), "exec")
 
@@ -184,6 +210,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 scenePhase1Entered=True,
                 scenePhase1At=1.0,
                 sceneCheckTicks=5,
+                s3Stage50AttemptOpened=True,
                 choicesCount=1 if 20 in done_stages else 0,
                 completed=completed,
                 talkProxy=proxy,
@@ -221,6 +248,7 @@ class SaveReloadPathTests(unittest.TestCase):
         if "sceneTalkPending" in psc:
             self.assertFalse(ns["sceneTalkPending"])
             self.assertFalse(ns["sceneMenuOpened"])
+            self.assertFalse(ns["s3Stage50AttemptOpened"])
             self.assertFalse(ns["scenePhase1Entered"])
             self.assertEqual(ns["sceneCheckTicks"], 0)
             self.assertIn(2, cancels)
@@ -259,7 +287,9 @@ class SaveReloadPathTests(unittest.TestCase):
             "codsworthHeld, prestonFails, prestonFollow, applied, min00Given, "
             "prestonUsedFallback, prestonTalkLogged, prestonOff, prestonState, prestonMoves, "
             "codsworthOff, codsworthState, codsworthMoves, "
-            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks"
+            "prestonDialogueMenuOpen, prestonScenePending, prestonSceneMenuOpened, prestonScenePhase1, prestonPhase1At, prestonSceneChecks, "
+            "s6RoomScenePending, s6RoomSceneMenuOpened, s6RoomSceneRestarting, s6RoomScenePhase1, s6RoomPhase1At, s6RoomAttemptStartedAt, s6RoomSceneTicks, "
+            "s6SturgesScenePending, s6SturgesSceneMenuOpened, s6SturgesSceneRestarting, s6SturgesScenePhase1, s6SturgesPhase1At, s6SturgesAttemptStartedAt, s6SturgesSceneTicks"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(MIN00_PSC), "exec")
 
@@ -281,6 +311,7 @@ class SaveReloadPathTests(unittest.TestCase):
             regs: list[tuple[object, str]] = []
             menu_regs: list[str] = []
             scene_regs: list[int] = []
+            s6_regs: list[int] = []
             alias_calls: list[int] = []
             talkable: list[object] = []
             wfc01_checks: list[bool] = []
@@ -293,7 +324,6 @@ class SaveReloadPathTests(unittest.TestCase):
             )
             preston = _make_actor("Preston")
             codsworth = _make_actor("Codsworth", disabled=True) if keeper_only else None
-            scene = SimpleNamespace(name="PrestonTalkScene") if not keeper_only else None
             sanctuary_q = SimpleNamespace(
                 IsRunning=lambda: False,
                 StartNoWait=lambda: (sanctuary_starts.append(1), True)[1],
@@ -303,7 +333,6 @@ class SaveReloadPathTests(unittest.TestCase):
                 KeeperOnly=keeper_only,
                 Preston=preston,
                 Codsworth=codsworth,
-                PrestonTalkScene=scene,
                 Credits="Credits",
                 RewardCount=100,
                 CodsworthCheck=5.0,
@@ -320,6 +349,20 @@ class SaveReloadPathTests(unittest.TestCase):
                 prestonScenePhase1=True,
                 prestonPhase1At=1.0,
                 prestonSceneChecks=4,
+                s6RoomScenePending=True,
+                s6RoomSceneMenuOpened=True,
+                s6RoomSceneRestarting=True,
+                s6RoomScenePhase1=True,
+                s6RoomPhase1At=1.0,
+                s6RoomAttemptStartedAt=1.0,
+                s6RoomSceneTicks=3,
+                s6SturgesScenePending=True,
+                s6SturgesSceneMenuOpened=True,
+                s6SturgesSceneRestarting=True,
+                s6SturgesScenePhase1=True,
+                s6SturgesPhase1At=1.0,
+                s6SturgesAttemptStartedAt=1.0,
+                s6SturgesSceneTicks=3,
                 codsworthFails=8,
                 codsworthKept=False,
                 codsworthHeld=True,
@@ -345,6 +388,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 EnsurePrestonAlias=lambda: alias_calls.append(1),
                 RegisterForMenuOpenCloseEvent=lambda m: menu_regs.append(m),
                 RegisterPrestonSceneEvents=lambda: scene_regs.append(1),
+                RegisterS6RoomEvents=lambda: s6_regs.append(1),
                 RegisterForRemoteEvent=lambda obj, ev: regs.append((obj, str(ev))),
                 InitRaiderTracking=lambda: raider_inits.append(1),
                 CheckConcordRaidersWfc01=lambda p, adv: wfc01_checks.append(adv),
@@ -433,7 +477,7 @@ class SaveReloadPathTests(unittest.TestCase):
         funcs = ("Actor.OnPlayerLoadGame", "CompleteSanctuaryObjective")
         vars_csv = (
             "completed, boundBench, benchActivated, talkSessionId, talkBoxOpen, "
-            "benchMenuOpen, sturgesHeld, a4Upgraded, applied"
+            "benchMenuOpen, sturgesHeld, a4Upgraded, startViaScriptBlocked, applied"
         )
         compiled = compile(translated_functions(psc, funcs, vars_csv), str(SANCTUARY_PSC), "exec")
 
@@ -460,6 +504,7 @@ class SaveReloadPathTests(unittest.TestCase):
                 benchMenuOpen=False,
                 sturgesHeld=False,
                 a4Upgraded=False,
+                startViaScriptBlocked=False,
                 applied=stage,
                 Debug=SimpleNamespace(OpenUserLog=lambda n: ulogs.append(n)),
                 Game=SimpleNamespace(GetPlayer=lambda: player),
@@ -577,6 +622,213 @@ class SaveReloadPathTests(unittest.TestCase):
         self.assertGreaterEqual(radius, 2.0)
         self.assertLess(radius, 2.714)  # stays inside physical cage cylinder
         self.assertGreater(dist_to_catwalk - radius, 5.0)  # never fires prematurely on catwalk
+
+    def test_task0a_pod_autosave_stage20_death_reload_surface_and_lift_reset(self) -> None:
+        psc = NEWGAME_PSC.read_text(encoding="utf-8")
+        looks_psc = (ROOT / "scripts" / "newgame" / "FO4SF_NewGameLooks.psc").read_text(encoding="utf-8")
+        ev_stage = re.search(r"Event OnStageSet\((.*?)\)\n(.*?)EndEvent", psc, re.S)
+        assert ev_stage is not None
+        wrapped = psc + f"\nFunction StageSetEvent({ev_stage[1]})\n{ev_stage[2]}EndFunction\n"
+        funcs = (
+            "PodEntryX", "PodEntryY", "PodSafeX", "PodSafeY",
+            "NoteLooksStage20", "NoteLooksDone", "StartPodOpen", "CompleteLooksStage20AfterPodExit", "PodAnimReady", "RunPodExitHook",
+            "TriggerVaultPodRecoveryAutosave", "EnsureLoadHookRegistered",
+            "ClearVaultSaveLock", "RelockVaultSaving", "ApplyStage", "StageSetEvent",
+            "Actor.OnPlayerLoadGame", "ResetVaultExitLift", "ReturnPlayerToVaultPlatform", "ArriveOnInteriorLift", "SetInteriorLiftState", "QueueSharedMapSetup", "SetLoadingBlackCover", "BeginSurfaceCogWait3D", "PollSurfaceCogWait3D", "SqrtF", "HexDigit", "HexFormId",
+            "StartPairedLiftRide", "CheckPairedLiftRide", "FailPairedLift", "TryFastTravelSurface", "TrySurfaceExteriorFallbacks", "Surface", "FinishSurface",
+            "Near", "FailExit",
+        )
+        vars_csv = (
+            "applied, pendingStage, pendingStageBy, looksSetStage20, exitUsedFallback, "
+            "podLooksDone, podLooksHow, podLooksBy, podExitDone, podExitStarted, podFellBack, "
+            "vaultPodAutosaved, vaultSavingRelocked, vaultRecoveryTriggered, vaultPodAutosaveSkips, "
+            "loadHookRegistered, dyingHookRegistered, h00SuspectsRead, "
+            "liftPairActive, liftPairDone, liftPairTransferred, liftPairTransferPending, liftPairFadeStarted, liftPairActiveRef, liftPairStartCell, liftPairStartWorld, liftPairDescending, liftPairStartedAt, liftPairStartX, liftPairStartY, liftPairStartZ, liftPairTransferRetries, "
+            "surfaceMovedAt, surfaceMoves, surfaceSets, arrivalWorld, arrivedAt, fallbackPending, "
+            "discoveryMarkerMoved, discoveryAttachPending, landingChecks, asked, "
+            "returnSurfacePending, returnAsked, returnVaultAsked, returnSurfaceWaitTicks, returnSurfaceTries, exitFailures"
+        )
+        compiled = compile(translated_functions(wrapped, funcs, vars_csv), str(NEWGAME_PSC), "exec")
+        looks_compiled = compile(translated_functions(looks_psc, ("Done",), ""), "FO4SF_NewGameLooks.psc", "exec")
+
+        vault_cell = SimpleNamespace(GetFormID=lambda: 0x020011F3)
+        core_cell = SimpleNamespace(GetFormID=lambda: 0x04000CF0)
+        ext_world = object()
+        cur_stage = [10]
+        autosaves: list[int] = []
+        chargens: list[tuple[bool, bool, bool]] = []
+        huds: list[int] = []
+        fast_travels: list[object] = []
+        logs: list[str] = []
+        now = [10.0]
+
+        def _make_ref(fid: int, cell, world, pos, interior: bool):
+            st = {"pos": pos, "cell": cell, "world": world, "interior": interior, "enables": [], "add_map": [], "ft": [], "disc": 0}
+            return SimpleNamespace(
+                GetFormID=lambda: fid,
+                GetParentCell=lambda: st["cell"],
+                GetWorldSpace=lambda: st["world"],
+                GetPositionX=lambda: st["pos"][0],
+                GetPositionY=lambda: st["pos"][1],
+                GetPositionZ=lambda: st["pos"][2],
+                IsInInterior=lambda: st["interior"],
+                Is3DLoaded=lambda: True,
+                IsDead=lambda: False,
+                Enable=lambda f=False: st["enables"].append(f),
+                AddToMap=lambda b=False: st["add_map"].append(b),
+                SetMarkerDiscovered=lambda: st.__setitem__("disc", st["disc"] + 1),
+                EnableFastTravel=lambda b=True: st["ft"].append(b),
+                SetPosition=lambda x, y, z: (
+                    st.__setitem__("pos", (x, y, z)),
+                    st.__setitem__("cell", core_cell if not st["interior"] and abs(x + 1200.0) < 5.0 else st["cell"]),
+                ),
+                SetAngle=lambda *a: None,
+                _st=st,
+            )
+
+        vault_anchor = _make_ref(0x02000805, vault_cell, None, (-60.0, 0.0, -1.0), True)
+        exit_anchor = _make_ref(0x040A775B, core_cell, ext_world, (-1275.3, 1305.3, 108.2), False)
+        core_anchor = _make_ref(0x04000800, core_cell, ext_world, (0.0, 0.0, 100.0), False)
+        land_marker = _make_ref(0x100008F2, core_cell, ext_world, (-1959.0, -493.0, 100.0), False)
+        lift_base = object()
+        lift_state = {"raised": True, "plays": [], "resets": 0}
+
+        def _lift_play(clip: str):
+            lift_state["plays"].append(clip)
+            if clip == "Play01":
+                return not lift_state["raised"]
+            if clip == "Play02":
+                lift_state["raised"] = False
+                return True
+            return False
+
+        lift = SimpleNamespace(
+            Is3DLoaded=lambda: True,
+            GetParentCell=lambda: vault_cell,
+            GetBaseObject=lambda: lift_base,
+            PlayAnimation=_lift_play,
+            Reset=lambda *a: (lift_state.__setitem__("resets", lift_state["resets"] + 1), lift_state.__setitem__("raised", False)),
+        )
+        player = _make_ref(0x14, vault_cell, None, (-77.742, -3.958, -1.72), True)
+
+        def _player_moveto(target, dx=0.0, dy=0.0, dz=0.0, *rest):
+            if target is exit_anchor or target is core_anchor:
+                return  # death-reload broken state: MoveTo fails to leave interior!
+            if target is land_marker and target in fast_travels:
+                player._st["world"] = ext_world
+                player._st["cell"] = core_cell
+                player._st["interior"] = False
+                player._st["pos"] = (-1959.0, -493.0, 100.0)
+
+        player.MoveTo = _player_moveto
+
+        def _get_form(fid: int, plg: str):
+            if plg == "FO4Port.esm":
+                if fid == 0x805: return vault_anchor
+                if fid == 0x1618: return lift
+                if fid == 0x1619: return lift_base
+            if plg == "FO4TerrainCore.esm":
+                if fid == 0x0A775B: return exit_anchor
+                if fid == 0x000800: return core_anchor
+            if plg == "FO4SFMapMarkers.esm" and fid == 0x0008F2:
+                return land_marker
+            return None
+
+        ns = dict(
+            LogName="fo4sf_newgame",
+            PodExitMode="safe_spawn", PodAnimPlugin="FO4SFVaultPod.esm", PodCreatorInPod=False,
+            PodSafeStep=-3.2, PodEntryStep=-2.5, PodSafeHeading=270.0, PodHeading=0.0,
+            PodOriginX=0.0, PodOriginY=0.0, PodOriginZ=0.0, PodX=0.0, PodY=0.0, PodZ=0.0, PodLift=0.3,
+            podLooksDone=False, podLooksHow="", podLooksBy="Trigger", podExitDone=False, podExitStarted=False, podFellBack=False,
+            GameModeGlobal=_make_global(1.0),
+            CorePlugin="FO4TerrainCore.esm", ExitAnchorId=0x0A775B,
+            VaultPlugin="FO4Port.esm", VaultAnchorId=0x805,
+            AnchorX=-60.0, AnchorY=0.0, AnchorZ=-1.0,
+            PlatformX=-77.742, PlatformY=-3.958, PlatformZ=-1.751, PlatformRadius=2.0,
+            LiftId=0x1618, LiftBaseId=0x1619, LiftRise=21.6, LiftSeconds=9.8667, LiftFadeLead=1.1, LiftDoneMargin=0.25,
+            LiftPlayEvent="Play01", LiftResetEvent="Play02", ActiveLiftPairId="fo4.vault111_exit", LiftPairIds=["fo4.vault111_exit"],
+            ArrivalX=0.0, ArrivalY=0.0, ArrivalZ=100.0, ArrivalHeading=0.0,
+            MergeOffsetX=-1200.0, MergeOffsetY=-2700.0, FallDrop=3.0, SurfaceWait=10.0, SurfaceTries=3,
+            applied=0, pendingStage=-1, pendingStageBy="other", looksSetStage20=False, exitUsedFallback=False,
+            vaultPodAutosaved=False, vaultSavingRelocked=False, vaultRecoveryTriggered=False, vaultPodAutosaveSkips=0,
+            loadHookRegistered=False, dyingHookRegistered=False, h00SuspectsRead=True,
+            liftPairActive=False, liftPairDone=False, liftPairTransferred=False, liftPairTransferPending=False, liftPairFadeStarted=False,
+            liftPairActiveRef=None, liftPairStartCell=None, liftPairStartWorld=None, liftPairDescending=False,
+            liftPairStartedAt=0.0, liftPairStartX=0.0, liftPairStartY=0.0, liftPairStartZ=0.0, liftPairTransferRetries=0,
+            surfaceMovedAt=0.0, surfaceMoves=0, surfaceSets=0, arrivalWorld=None, arrivedAt=0.0,
+            fallbackPending=False, discoveryMarkerMoved=False, discoveryAttachPending=False, landingChecks=0,
+            asked=False, returnAsked=False, returnSurfacePending=False, returnVaultAsked=False,
+            returnSurfaceWaitTicks=0, returnSurfaceTries=0, exitFailures=0,
+            PrepareArrivalMarkerDuringRide=lambda: None,
+            SyncPipboyOwnedWornState=lambda *_: False,
+            Debug=SimpleNamespace(OpenUserLog=lambda *_: None, Notification=lambda *_: None),
+            Utility=SimpleNamespace(GetCurrentRealTime=lambda: now[0], Wait=lambda *_: None),
+            Game=SimpleNamespace(
+                GetPlayer=lambda: player,
+                GetFormFromFile=_get_form,
+                FadeOutGame=lambda *_: None,
+                SetInChargen=lambda a, b, c: chargens.append((a, b, c)),
+                SetCharGenHUDMode=lambda m: huds.append(m),
+                RequestAutoSave=lambda: autosaves.append(cur_stage[0]),
+                FastTravel=lambda t: (fast_travels.append(t), player.MoveTo(t)),
+            ),
+            StandsInVault=lambda p: p.GetParentCell() == vault_cell,
+            RegisterForRemoteEvent=lambda *_: None,
+            RegisterForAnimationEvent=lambda *_: None,
+            UnregisterForAnimationEvent=lambda *_: None,
+            StartTimer=lambda *_: None,
+            CancelTimer=lambda *_: None,
+            RunSharedMapSetup=lambda: 4,
+            GetStage=lambda: cur_stage[0],
+            SetStage=lambda st: cur_stage.__setitem__(0, st),
+            SetObjectiveDisplayed=lambda *_: None,
+            SetObjectiveCompleted=lambda *_: None,
+            SetActive=lambda *_: None,
+            CompleteQuest=lambda: None,
+            StartLandingQuests=lambda: None,
+            ReleaseStoryLandingFade=lambda: None,
+            AdvanceTo=lambda st, by="Trigger": (cur_stage.__setitem__(0, st), ns["ApplyStage"](st, by)),
+            Trace=lambda m: logs.append(str(m)),
+        )
+        exec(compiled, ns)
+        looks_ns = dict(
+            GetStage=lambda: cur_stage[0],
+            SetStage=lambda st: cur_stage.__setitem__(0, st),
+            TracePosition=lambda *_: None,
+            Trace=lambda m: logs.append(str(m)),
+            self=SimpleNamespace(NoteLooksStage20=ns["NoteLooksStage20"], NoteLooksDone=ns["NoteLooksDone"]),
+        )
+        exec(looks_compiled, looks_ns)
+
+        # 1. Use preset look commits stage 20 BEFORE pod RequestAutoSave
+        looks_ns["Done"]("use preset look")
+        self.assertEqual(cur_stage[0], 20)
+        self.assertEqual(autosaves, [20])
+
+        # 2. Death reload onto stage-20 pod autosave relocks vault saving at stage 20
+        ns["OnPlayerLoadGame"](player)
+        self.assertTrue(ns["vaultSavingRelocked"])
+        self.assertIn("vault_death_recovery=save_locked stage=20", logs)
+
+        # 3. Retrying a raised lift resets it (Play02) and StartPairedLiftRide succeeds
+        cur_stage[0] = 30
+        player.SetPosition(-77.742, -3.958, -1.72)
+        self.assertTrue(ns["StartPairedLiftRide"](player, False))
+        self.assertTrue(ns["liftPairActive"])
+        self.assertEqual(lift_state["plays"], ["Play01", "Play02", "Play01"])
+
+        # 4. Surface clears save lock / HUD chargen, tries 0x000800, falls back to last-resort FastTravel(0x0008F2) after retries exhaust, reaches stage 40!
+        ns["Surface"](player)
+        self.assertFalse(ns["vaultSavingRelocked"])
+        self.assertEqual(fast_travels, [])
+        now[0] += 11.0
+        ns["FinishSurface"](player)
+        now[0] += 11.0
+        ns["FinishSurface"](player)
+        self.assertEqual(fast_travels, [land_marker])
+        self.assertFalse(player.IsInInterior())
+        ns["FinishSurface"](player)
+        self.assertEqual(cur_stage[0], 40)
 
 
 if __name__ == "__main__":

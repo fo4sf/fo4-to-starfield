@@ -457,6 +457,18 @@
       "constant": false
     },
     {
+      "id": "0x000867",
+      "type": "KYWD",
+      "edid": "FO4SF_Kw_Pipboy"
+    },
+    {
+      "id": "0x000868",
+      "type": "GLOB",
+      "edid": "FO4SF_PipboyScreenSource",
+      "default": 0.0,
+      "constant": false
+    },
+    {
       "id": "0x000870",
       "type": "GLOB",
       "edid": "FO4SF_GameMode",

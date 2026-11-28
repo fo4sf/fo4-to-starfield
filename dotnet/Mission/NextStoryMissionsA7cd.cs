@@ -845,8 +845,8 @@ static class NextStoryMissionsA7cd
                 $"FO4SF_MQ206 GLOB 0x{gid:X6} missing");
         }
 
-        var a7cdRefs = plug.Worldspaces.FirstOrDefault()?.TopCell?.Persistent.OfType<SF.IPlacedNpcGetter>()
-            .Where(r => IsA7cdActorRefId(r.FormKey.ID)).ToList() ?? [];
+        var a7cdRefs = Mission.PersistentNpcRefs(plug)
+            .Where(r => IsA7cdActorRefId(r.FormKey.ID)).ToList();
         need(a7cdRefs.Count == 8 && a7cdRefs.All(r => (r.MajorRecordFlagsRaw & 0x800) != 0),
             "A7cd persistent ACHRs must all carry InitiallyDisabled (0x800, R3)");
 

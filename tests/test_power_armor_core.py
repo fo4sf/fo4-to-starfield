@@ -414,6 +414,33 @@ class CoreLogParserTests(unittest.TestCase):
         self.assertTrue(s["verdict"].startswith("PARTIAL"))
 
 
+    def test_no_non_pipboy_fo4sf_armo_claims_pipboy_bits_54_or_55(self):
+        # G5(b): Only FO4SF_PipboyWrist (0x80D) may list ARMAs or flags on Pip-Boy bits 54 or 55.
+        self.assertIn("PipboySlotMask = (1UL << 54) | (1UL << 55);", CS_TEXT)
+        self.assertIn("StripPipboySlotArmatures", CS_TEXT)
+        self.assertIn("TouchesPipboySlots", CS_TEXT)
+
+        from fo4sf.core.cross_plugin_check import build_writer_catalog
+        catalog, errs = build_writer_catalog(str(ROOT))
+        self.assertEqual(errs, [], "\n".join(errs))
+
+        # Check all non-Pip-Boy .cs writers do not assign FirstPersonFlag.SSChronoMark or bit 54/55 to any ARMO/ARMA
+        for cs_path in sorted((ROOT / "dotnet").rglob("*.cs")):
+            rel = cs_path.relative_to(ROOT).as_posix()
+            if rel in ("dotnet/NewGame/PipboyWristBuilder.cs", "dotnet/NewGame/Program.cs", "dotnet/PowerArmorCore/Program.cs"):
+                continue
+            txt = cs_path.read_text(encoding="utf-8")
+            self.assertNotIn("SSChronoMark", txt, f"{rel} unexpectedly references SSChronoMark (Pip-Boy slot 54)")
+            self.assertNotIn("1UL << 55", txt, f"{rel} unexpectedly references bit 55 (Pip-Boy screen slot)")
+
+        # Verify NewGame owns exactly one ARMO (FO4SF_PipboyWrist) so no other ARMO in NewGame can touch bits 54/55
+        ng_cs = (ROOT / "dotnet" / "NewGame" / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn("plug.Armors.Count == 1", ng_cs)
+
+        # Verify PowerArmorCore Check() rejects PA ARMO with bit 54/55 even in the fixture self-test
+        self.assertIn("bad-watch-slot", CS_TEXT)
+
+
 @unittest.skipUnless(
     shutil.which("dotnet") and os.environ.get("FO4SF_DOTNET_TESTS"),
     "set FO4SF_DOTNET_TESTS=1 with dotnet installed to run C# Mutagen self-tests",

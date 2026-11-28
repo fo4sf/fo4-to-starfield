@@ -16,30 +16,51 @@ The plugin side (an ARMA/ARMO whose model is this NIF, set as Codsworth's skin) 
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
+import re
+import struct
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from fo4sf import actor_rebind, ba2, nif, pipeline  # noqa: E402
+from fo4sf import actor_rebind, ba2, convert_material, nif, pipeline  # noqa: E402
 
 SOURCE = "meshes\\actors\\robot\\characterassets\\mrhandy.nif"
 TEMPLATE = "meshes\\actors\\minibota\\mesh\\minibota_base\\minibota_mesh.nif"
 OUT_NAME = "fo4port/actors/codsworth/codsworth"
 ARMS = (("LArm", "C_Arm1"), ("MArm", "C_Arm2"), ("RArm", "C_Arm3"))
+HANDY_LENS_BGEM = "materials\\actors\\robot\\handylens.bgem"
 CODSWORTH_STEEL_TINT = (0.88, 0.90, 0.92, 0.72)
 CODSWORTH_METALNESS = 0.85
-CODSWORTH_ROUGHNESS = 0.22
+CODSWORTH_FALLBACK_ROUGHNESS = 0.45
+
+
+def _roughness_texture_file(mat: dict) -> str:
+    """Return the non-empty Roughness texture path from Objects (MRTextureFile idx 3) or Summary, else ''."""
+    for obj in mat.get("Objects") or []:
+        for c in obj.get("Components") or []:
+            if c.get("Type") == "BSMaterial::MRTextureFile" and c.get("Index") == 3:
+                fn = (c.get("Data") or {}).get("FileName") or ""
+                if isinstance(fn, str) and fn.strip():
+                    return fn.strip()
+    layer = (mat.get("Summary") or {}).get("Layer1") or {}
+    r = ((layer.get("Textures") or {}).get("Roughness") or {}).get("File") or ""
+    return r.strip() if isinstance(r, str) else ""
 
 
 def patch_codsworth_steel_mat(mat: dict) -> dict:
-    """Fix FO4 Mr. Handy dark-chrome diffuse + missing _s.dds roughness (M6):
-    blend 72% bright brushed-steel tint over the dark FO4 _color.dds seams, enable Metalness=0.85 (slot 4),
-    and replace the flat 0.745 fallback roughness map with brushed-metal Roughness=0.22 (slot 3)."""
+    """Calibrate FO4 Mr. Handy brushed-steel PBR parameters while preserving any real _rough.dds map:
+    blend bright brushed-steel tint over the dark FO4 _color.dds seams, enable Metalness=0.85 (slot 4),
+    and keep MRTextureFile slot 3 (_rough.dds) when present (UseReplacement=False); only when no roughness
+    texture exists, fall back to a non-mirror Roughness=0.45 so Metalness > 0.5 never pairs with Roughness < 0.4
+    without a roughness texture."""
     tx, ty, tz, tw = CODSWORTH_STEEL_TINT
     m_str = f"{CODSWORTH_METALNESS:g}"
-    r_str = f"{CODSWORTH_ROUGHNESS:g}"
+    r_str = f"{CODSWORTH_FALLBACK_ROUGHNESS:g}"
+    rough_file = _roughness_texture_file(mat)
+    has_rough_tex = bool(rough_file)
     for obj in mat.get("Objects") or []:
         comps = obj.get("Components") or []
         if not comps:
@@ -55,26 +76,33 @@ def patch_codsworth_steel_mat(mat: dict) -> dict:
                     d["x"], d["y"], d["z"], d["w"] = f"{tx:g}", f"{ty:g}", f"{tz:g}", f"{tw:g}"
         if has_texfiles:
             kept = []
-            saw_rough, saw_metal = False, False
+            saw_rough_repl, saw_metal_repl = False, False
             for c in comps:
                 ctype = c.get("Type")
                 cidx = c.get("Index")
-                if ctype == "BSMaterial::MRTextureFile" and cidx in (3, 4):
+                if ctype == "BSMaterial::MRTextureFile" and cidx == 4:
+                    continue
+                if ctype == "BSMaterial::MRTextureFile" and cidx == 3 and not has_rough_tex:
                     continue
                 if ctype == "BSMaterial::TextureReplacement" and cidx == 3:
                     d = c["Data"]["Color"]["Data"]["Value"]["Data"]
-                    d["x"] = d["y"] = d["z"] = r_str
-                    d["w"] = "1"
-                    c["Data"]["Enabled"] = "true"
-                    saw_rough = True
+                    if has_rough_tex:
+                        d["x"] = d["y"] = d["z"] = "0"
+                        d["w"] = "1"
+                        c["Data"].pop("Enabled", None)
+                    else:
+                        d["x"] = d["y"] = d["z"] = r_str
+                        d["w"] = "1"
+                        c["Data"]["Enabled"] = "true"
+                    saw_rough_repl = True
                 elif ctype == "BSMaterial::TextureReplacement" and cidx == 4:
                     d = c["Data"]["Color"]["Data"]["Value"]["Data"]
                     d["x"] = d["y"] = d["z"] = m_str
                     d["w"] = "1"
                     c["Data"]["Enabled"] = "true"
-                    saw_metal = True
+                    saw_metal_repl = True
                 kept.append(c)
-            if not saw_rough:
+            if not has_rough_tex and not saw_rough_repl:
                 kept.append({
                     "Data": {
                         "Color": {"Data": {"Value": {"Data": {"w": "1", "x": r_str, "y": r_str, "z": r_str}, "Type": "XMFLOAT4"}},
@@ -84,7 +112,7 @@ def patch_codsworth_steel_mat(mat: dict) -> dict:
                     "Index": 3,
                     "Type": "BSMaterial::TextureReplacement",
                 })
-            if not saw_metal:
+            if not saw_metal_repl:
                 kept.append({
                     "Data": {
                         "Color": {"Data": {"Value": {"Data": {"w": "1", "x": m_str, "y": m_str, "z": m_str}, "Type": "XMFLOAT4"}},
@@ -104,11 +132,20 @@ def patch_codsworth_steel_mat(mat: dict) -> dict:
             "Replacement": {"w": 1, "x": CODSWORTH_METALNESS, "y": CODSWORTH_METALNESS, "z": CODSWORTH_METALNESS},
             "UseReplacement": True,
         }
-        tex["Roughness"] = {
-            "File": "",
-            "Replacement": {"w": 1, "x": CODSWORTH_ROUGHNESS, "y": CODSWORTH_ROUGHNESS, "z": CODSWORTH_ROUGHNESS},
-            "UseReplacement": True,
-        }
+        if has_rough_tex:
+            prev_r = tex.get("Roughness") if isinstance(tex.get("Roughness"), dict) else {}
+            tex["Roughness"] = {
+                **prev_r,
+                "File": rough_file,
+                "Replacement": prev_r.get("Replacement", {"w": 1, "x": 0, "y": 0, "z": 0}),
+                "UseReplacement": False,
+            }
+        else:
+            tex["Roughness"] = {
+                "File": "",
+                "Replacement": {"w": 1, "x": CODSWORTH_FALLBACK_ROUGHNESS, "y": CODSWORTH_FALLBACK_ROUGHNESS, "z": CODSWORTH_FALLBACK_ROUGHNESS},
+                "UseReplacement": True,
+            }
     return mat
 
 
@@ -168,18 +205,94 @@ def main(argv=None):
     return 0
 
 
+def _shape_texture_paths(fo4, s):
+    """Return (diffuse, normal, spec) for an inline BSShaderTextureSet shape without a .bgsm, or None."""
+    if s.shader_ref < 0 or fo4.type_of(s.shader_ref) != "BSLightingShaderProperty":
+        return None
+    blk = fo4.blocks[s.shader_ref]
+    idx, = struct.unpack_from("<i", blk, 4)
+    name = fo4.strings[idx] if 0 <= idx < len(fo4.strings) else b""
+    if name.lower().endswith(b".bgsm"):
+        return None
+    n_extra, = struct.unpack_from("<I", blk, 8)
+    ts_ref, = struct.unpack_from("<i", blk, 12 + 4 * n_extra + 4 + 8 + 16)
+    if not (0 <= ts_ref < len(fo4.blocks)) or fo4.type_of(ts_ref) != "BSShaderTextureSet":
+        return None
+    tb = fo4.blocks[ts_ref]
+    count, = struct.unpack_from("<I", tb, 0)
+    paths, p = [], 4
+    for _ in range(count):
+        ln, = struct.unpack_from("<I", tb, p)
+        paths.append(tb[p + 4:p + 4 + ln].rstrip(b"\0").decode("latin-1"))
+        p += 4 + ln
+    diffuse = paths[0] if paths else ""
+    normal = paths[1] if len(paths) > 1 else ""
+    spec = paths[7] if len(paths) > 7 else ""
+    if not (diffuse and normal):
+        return None
+    return diffuse, normal, spec
+
+
+def _canonical_texset_stem(diffuse: str, normal: str, spec: str = "") -> str:
+    """Match pipeline.Converter.texture_set_material's deterministic stem for (diffuse, normal, spec)."""
+    stem = "texsets/" + re.sub(r"^textures[\\/]", "", diffuse.replace("\\", "/"), flags=re.I).lower()
+    ident = "|".join(x.replace("\\", "/").lower() for x in (diffuse, normal, spec))
+    return os.path.splitext(stem)[0] + "_" + hashlib.sha1(ident.encode()).hexdigest()[:8]
+
+
+def _handy_spec_path(src, diffuse: str) -> str:
+    """Resolve FO4's Handy <part>_s.dds alongside <part>_d.dds when MrHandy.nif leaves slot 7 blank."""
+    cand = re.sub(r"_d\.dds$", "_s.dds", diffuse, flags=re.I)
+    if cand != diffuse and src.texture(cand) is not None:
+        return cand
+    return ""
+
+
+def convert_handy_lens_material(src, conv):
+    """Convert FO4 Materials\\Actors\\Robot\\HandyLens.BGEM into a Starfield glass/lens .mat when present."""
+    if not (hasattr(src, "material") and hasattr(conv, "glass_material")):
+        return None
+    raw = src.material(HANDY_LENS_BGEM)
+    if raw is None:
+        return None
+    base, normal = convert_material.parse_bgem_textures(raw)
+    if not base:
+        return None
+    return conv.glass_material(base, normal)
+
+
 def build(a, staging):
     src = pipeline.Fo4Archives(a.fo4_data)
     raw = src.mesh(SOURCE)
     if raw is None:
         raise SystemExit(f"{SOURCE} not found in {a.fo4_data}")
-    conv = pipeline.Converter(src, staging, a.texconv, a.content_resources)
+    try:
+        conv = pipeline.Converter(src, staging, a.texconv, a.content_resources, spec_mask_roughness=True)
+    except TypeError:
+        conv = pipeline.Converter(src, staging, a.texconv, a.content_resources)
     fo4 = nif.parse(raw)
     materials = {}
+    s_dds_converted = {}
     for s in nif.fo4_trishapes(fo4, placed=True):
-        mat = conv._shape_material(fo4, s)
+        s_name = s.name.decode("latin-1")
+        mat = None
+        if hasattr(conv, "_convert_texture_set") and hasattr(src, "texture"):
+            tx_paths = _shape_texture_paths(fo4, s)
+            if tx_paths is not None:
+                diffuse, normal, spec = tx_paths
+                stem = _canonical_texset_stem(diffuse, normal, spec)
+                eff_spec = spec or _handy_spec_path(src, diffuse)
+                if eff_spec:
+                    s_dds_converted[s_name] = eff_spec
+                try:
+                    mat = conv._convert_texture_set(stem, diffuse, normal, eff_spec)
+                except Exception:
+                    mat = None
+        if mat is None:
+            mat = conv._shape_material(fo4, s)
         if mat:
-            materials[s.name.decode("latin-1")] = mat
+            materials[s_name] = mat
+    lens_mat = convert_handy_lens_material(src, conv)
     default = conv.neutral
     for mat_rel in sorted(set(materials.values())):
         if mat_rel and mat_rel != default:
@@ -208,6 +321,8 @@ def build(a, staging):
     report = {"source": SOURCE, "template": a.template, "animate_arms": a.animate_arms,
               "one_material": a.one_material, "plain_shader": a.plain_shader,
               "materials": materials,
+              "handy_lens_material": lens_mat,
+              "s_dds_converted": s_dds_converted,
               "files": sorted(files), **res.report}
     with open(os.path.join(staging, "codsworth_report.json"), "w") as f:
         json.dump(report, f, indent=1)

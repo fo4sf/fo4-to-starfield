@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "supported_games": [
+    "FO4",
+    "FO3",
+    "FNV"
+  ],
+  "pair_schema": {
+    "required_keys": [
+      "id",
+      "game",
+      "available",
+      "worldspace_edid",
+      "merge_offset_m",
+      "platform_radius_m",
+      "interior",
+      "surface"
+    ],
+    "unavailable_requires": "unavailable_reason"
+  },
+  "pairs": {
+    "fo4.vault111_exit": {
+      "id": "fo4.vault111_exit",
+      "game": "FO4",
+      "available": true,
+      "worldspace_edid": "FO4Core_Commonwealth",
+      "merge_offset_m": [
+        -1200.0,
+        -2700.0,
+        0.0
+      ],
+      "platform_radius_m": 2.0,
+      "interior": {
+        "plugin": "FO4Port.esm",
+        "cell_edid": "FO4Port_Vault111Cryo",
+        "fo4_ref_id": "0x0244EB",
+        "fo4_base_id": "0x0244EF",
+        "port_base_edid": "FO4Port_acti_0244ef_fallout4",
+        "stand_marker_fo4_id": "0x01B29E",
+        "ref_pos_m": [
+          -70.39204,
+          -2.7415295,
+          -0.114285715
+        ],
+        "stand_pos_m": [
+          -77.74214,
+          -3.9583488,
+          -1.7508924
+        ],
+        "rise_m": 21.6,
+        "play_event": "Play01",
+        "reset_event": "Play02",
+        "duration_s": 9.8667,
+        "reset_duration_s": 23.8333,
+        "reset_motion_s": 9.9,
+        "fade_lead_s": 1.4,
+        "done_margin_s": 0.25
+      },
+      "surface": {
+        "cog_plugin": "FO4SFExitLift.esm",
+        "cog_name": "Vault 111 Elevator",
+        "source_nif": "meshes/interiors/vault/rooms/vltelevator/vltelevatorexterior.nif",
+        "model_out": "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim.nif",
+        "rig_out": "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim\\characterassets\\skeleton.rig",
+        "anims_out": "fo4port\\interiors\\vault\\rooms\\vltelevator\\vltelevatorexterior_anim\\animations",
+        "graph_anam": "AnimTextData\\Tables\\Graphs\\ActivatorStateGraph01.agx",
+        "fo4_ext_ref_id": "0x000244EC",
+        "fo4_ext_base_id": "0x0019D22F",
+        "fo4_arrival_door_id": "0x000998E3",
+        "fo4_descend_trigger_id": "0x000998E2",
+        "fo4_collision_platform_id": "0x0004BAEE",
+        "arrival_local_pos_m": [
+          -1267.7815,
+          1293.0751,
+          128.10953
+        ],
+        "arrival_heading_deg": 120.32119,
+        "ref_local_pos_m": [
+          -1275.5824,
+          1296.0703,
+          33.253544
+        ],
+        "core_plugin": "FO4TerrainCore.esm",
+        "core_static_base_edid": "FO4Core_acti_19d22f_fallout4",
+        "core_static_base_id": "0x0A2D4B",
+        "cog_pad_radius_m": 3.2,
+        "states": {
+          "stage8": "StateA_Play",
+          "stage4": "StateB_Play"
+        },
+        "idles": "toggle",
+        "expected_moving_bodies": 29,
+        "expected_carried_by_bone": {
+          "c_ExteriorLightR": 1,
+          "c_ExteriorLightL": 1,
+          "b_Platform": 25,
+          "b_Hatch Left": 1,
+          "b_Hatch Right": 1
+        },
+        "descend_clip": "StateA_Play",
+        "descend_event": "Play01",
+        "descend_duration_s": 18.6667,
+        "descend_drop_m": 59.1425,
+        "descend_fade_at_s": 7.533,
+        "descend_toggle_collision_at_s": 10.333,
+        "descend_done_margin_s": 0.25,
+        "ascend_reset_clip": "StateB_Play",
+        "ascend_reset_event": "Play02",
+        "ascend_reset_duration_s": 11.6667,
+        "ascend_rise_m": 25.9932,
+        "transfer_on_fade_or_done": true
+      }
+    },
+    "fo3.vault101_exit": {
+      "id": "fo3.vault101_exit",
+      "game": "FO3",
+      "available": false,
+      "unavailable_reason": "Capital Wasteland worldspace and Vault 101 exterior door pair are not built into the bundle yet",
+      "worldspace_edid": "FO3Core_Wasteland",
+      "merge_offset_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "platform_radius_m": 2.0,
+      "interior": {},
+      "surface": {}
+    },
+    "fnv.vault22_exit": {
+      "id": "fnv.vault22_exit",
+      "game": "FNV",
+      "available": false,
+      "unavailable_reason": "Mojave Wasteland worldspace and Vault 22 lift pair are not built into the bundle yet",
+      "worldspace_edid": "FNVCore_WastelandNV",
+      "merge_offset_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "platform_radius_m": 2.0,
+      "interior": {},
+      "surface": {}
+    }
+  }
+}

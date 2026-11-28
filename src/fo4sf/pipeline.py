@@ -925,7 +925,10 @@ class Converter:
 
     def convert_anim_object(self, nif_name: str, states: dict, foley: Optional[str] = None, out_suffix: str = "_anim",
                             swap_siblings: bool = False, idles: str = "toggle", graph: Optional[str] = None,
-                            slow: Optional[dict] = None, rest_after: Optional[str] = None) -> dict:
+                            slow: Optional[dict] = None, rest_after: Optional[str] = None,
+                            force_static_bones=(), max_mesh_part_tris: Optional[int] = convert_static.MAX_DOOR_MESH_PART_TRIS,
+                            drop_collision_bones=(), include_static_collision: bool = False,
+                            closed_pose_clip: Optional[str] = None) -> dict:
         """An animated FO4 object that is no door (the Vault 111 console, FAL-489 variant D) as a model with its own rig and
         one clip per activator-graph slot, through the door path's multi-part builder: states maps FO4 sequence names to
         the Play slots (anim_object.parse_states), each Play slot also gets a one-frame Idle hold, every .afx is written in
@@ -956,9 +959,25 @@ class Converter:
             out_name = f"{self.prefix}/{os.path.splitext(rel)[0].lower()}{out_suffix.lower()}"
             holder = {}
 
+            static_set = {str(x).lower() for x in (force_static_bones or ())}
+
             def hook(plan):
                 if swap_siblings:                                  # the experiment of FAL-489 session 6: the two siblings' indices exchanged
                     plan = anim_object.swap_siblings(plan)
+                if static_set:
+                    plan = {
+                        **plan,
+                        "clips": [
+                            {
+                                **clip,
+                                "tracks": [
+                                    ({**t, "static": True} if str(t.get("name", "")).lower() in static_set else t)
+                                    for t in clip["tracks"]
+                                ],
+                            }
+                            for clip in plan["clips"]
+                        ],
+                    }
                 plan = anim_object.fill_static_tracks(plan)
                 if slow:
                     plan = anim_object.stretch_clips(plan, slow)
@@ -975,7 +994,9 @@ class Converter:
                 raw, out_name, mats, clip_files, collision_template=self.collision_template,
                 leaf_physics_donor=self.door_physics_donor, aliases=dict(states), drop_skinned=True,
                 allowed=tuple(states.values()), expect_clips=anim_object.slot_names(states, idles), plan_hook=hook,
-                anim_graph=graph or anim_object.GRAPH, motion_clip=sorted(states.values())[0])
+                anim_graph=graph or anim_object.GRAPH, motion_clip=sorted(states.values())[0],
+                max_mesh_part_tris=max_mesh_part_tris, include_static_bodies=include_static_collision,
+                drop_collision_bones=tuple(drop_collision_bones or ()), closed_pose_clip=closed_pose_clip)
             anim["states"] = dict(states)
             anim["clips"] = anim_object.clip_table(holder["plan"], convert_static.UNIT_SCALE)
             anim["foley"] = foley or ""

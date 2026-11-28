@@ -29,10 +29,10 @@ from fo4sf.core.cross_plugin_check import (  # noqa: E402
     validate_native_core_value_refs,
 )
 
-# parity not applicable: ordered by S1, A6, A12, B8, H00, and N2 (0x000865..0x000866 + start/mode GLOBs 0x000870..0x000879 + SpecialMenuPending 0x000880..0x000887 + H00 suspect GLOBs 0x000890..0x000897)
-PINNED_CORE_VALUES_PLAYER_SHA256 = "d8712abb0d7d029490b2af89f5bf84a24e5d77f841fe6a473f6c2ae0cd7db2cf"
-# parity not applicable: ordered by S1, A5, A6, A12, B8, H00, and N2 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
-PINNED_CORE_VALUES_TEST_SHA256 = "fefea45074233d146e3c0edfbf8e80640214defae5df99a53b73f4692595c9cd"
+# parity not applicable: ordered by S1, A6, A12, B8, H00, N2, and G5 (0x000865..0x000868 + start/mode GLOBs 0x000870..0x000879 + SpecialMenuPending 0x000880..0x000887 + H00 suspect GLOBs 0x000890..0x000897)
+PINNED_CORE_VALUES_PLAYER_SHA256 = "7412912f53bd472d02b4f5cdbf5bf39e91d30347235e4d950089fc36851aa15b"
+# parity not applicable: ordered by S1, A5, A6, A12, B8, H00, N2, and G5 (test profile builds FO4SFCoreValues.esm with --test-mode 1)
+PINNED_CORE_VALUES_TEST_SHA256 = "637fbd85ce04d17b44816a46e4b1789c2c0fa32fd68c6574a86f0558756adf46"
 
 
 def _sha256_file(path: str) -> str:
@@ -74,6 +74,13 @@ class CoreValuesSchemaTests(unittest.TestCase):
         self.assertEqual(by_edid["FO4SF_StartCardOpen"].record_type, "GLOB")
         self.assertEqual(by_edid["FO4SF_StartCardOpen"].default, 0.0)
         self.assertFalse(by_edid["FO4SF_StartCardOpen"].constant)
+        # G5(c): shared F7 gate keyword FO4SF_Kw_Pipboy (0x000867) & 3-state FO4SF_PipboyScreenSource (0x000868)
+        self.assertEqual(core_form_id("FO4SF_Kw_Pipboy"), 0x000867)
+        self.assertEqual(by_edid["FO4SF_Kw_Pipboy"].record_type, "KYWD")
+        self.assertEqual(core_form_id("FO4SF_PipboyScreenSource"), 0x000868)
+        self.assertEqual(by_edid["FO4SF_PipboyScreenSource"].record_type, "GLOB")
+        self.assertEqual(by_edid["FO4SF_PipboyScreenSource"].default, 0.0)
+        self.assertFalse(by_edid["FO4SF_PipboyScreenSource"].constant)
         # S1 + B8 + N2: start & mode GLOBs 0x870..0x879
         expected_s1 = {
             "FO4SF_GameMode": (0x000870, 0.0),
@@ -113,7 +120,7 @@ class CoreValuesSchemaTests(unittest.TestCase):
             self.assertEqual(by_edid[ed].record_type, "GLOB")
             self.assertEqual(by_edid[ed].default, 0.0)
             self.assertFalse(by_edid[ed].constant)
-        self.assertEqual(len(records), 70)
+        self.assertEqual(len(records), 72)
 
     def test_start_mode_globals_owned_exclusively_by_core_values(self) -> None:
         catalog, problems = build_writer_catalog(ROOT)
